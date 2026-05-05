@@ -27,7 +27,9 @@ bot-whatsapp-drive/
     services/logService.js
     services/whatsappClient.js
     utils/fileNames.js
+    utils/mask.js
     utils/mime.js
+    utils/sanitize.js
   config.json
   config.example.json
   .env.example
@@ -60,6 +62,9 @@ WHATSAPP_AUTH_DATA_PATH=.wwebjs_auth
 WHATSAPP_GROUPS_CONFIG_PATH=config.json
 LOG_UPLOADS_PATH=uploads.log
 LOG_ERRORS_PATH=errors.log
+LOG_MASK_PHONE_NUMBERS=true
+LOG_STORE_DRIVE_LINKS=false
+LOG_MAX_FIELD_LENGTH=120
 BOT_PROCESSING_ENABLED=true
 ALLOW_REAL_WHATSAPP_CONNECTION=true
 ALLOW_REAL_DRIVE_UPLOADS=true
@@ -134,12 +139,27 @@ Los valores por defecto conservan el comportamiento actual.
 
 ## Logs
 
-La fase actual mantiene compatibilidad con:
+El bot mantiene compatibilidad con:
 
 - `uploads.log`
 - `errors.log`
 
-Estos logs pueden contener nombres de grupos, telefonos en nombres de archivo y links de Drive. Tratarlos como sensibles. No compartirlos ni subirlos a repositorios. En fases posteriores se planifica masking, sanitizacion e idempotencia.
+Los logs historicos no se migran ni se borran automaticamente. Desde la Fase 2, los nuevos registros aplican masking y sanitizacion basica:
+
+- Los telefonos/remitentes no se guardan completos.
+- Los nombres de archivo usan una referencia parcial del remitente, no el telefono completo.
+- Los links completos de Drive no se guardan por defecto.
+- Los errores se recortan y se filtran para evitar tokens, URLs largas y datos sensibles obvios.
+
+Flags relacionados:
+
+```env
+LOG_MASK_PHONE_NUMBERS=true
+LOG_STORE_DRIVE_LINKS=false
+LOG_MAX_FIELD_LENGTH=120
+```
+
+`LOG_STORE_DRIVE_LINKS=true` permite guardar/imprimir el link completo de Drive y debe usarse solo en entornos controlados. Aun con masking, `uploads.log` y `errors.log` deben tratarse como sensibles. No compartirlos ni subirlos a repositorios.
 
 ## Validaciones seguras
 
@@ -167,7 +187,7 @@ No ejecutar `npm start` ni `npm run auth` salvo instruccion explicita.
 - `whatsapp-web.js` depende de WhatsApp Web y puede romperse ante cambios externos.
 - No es una integracion oficial WhatsApp Business Cloud API.
 - No hay idempotencia implementada todavia.
-- Los logs seguros profundos quedan para una fase posterior.
+- El masking de logs es basico y debe revisarse si se agregan nuevos proveedores o payloads.
 - No hay deploy/staging formal en esta fase.
 
 ## Prueba manual futura

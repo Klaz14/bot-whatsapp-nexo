@@ -1,5 +1,6 @@
 const { ALLOWED_MIME } = require('../utils/mime');
 const { buildUploadFilename } = require('../utils/fileNames');
+const { maskSensitiveText } = require('../utils/mask');
 
 function createMessageHandler({ config, driveService, logService }) {
   return async function handleMessage(msg) {
@@ -31,31 +32,34 @@ function createMessageHandler({ config, driveService, logService }) {
 
       try {
         const result = await driveService.uploadWithRetry(filename, media.mimetype, buffer);
-        const link = result.webViewLink || `https://drive.google.com/file/d/${result.id}`;
-        const line = [
-          new Date().toISOString(),
-          chat.name,
+        const driveRef = logService.uploadEvent({
+          timestamp: new Date().toISOString(),
+          chatName: chat.name,
           tag,
           filename,
-          link,
-        ].join('\t');
-        logService.upload(line);
+          driveResult: result,
+        });
         console.log(`[OK] ${chat.name} -> ${filename}`);
-        console.log(`     ${link}`);
+        console.log(`     ${driveRef}`);
       } catch (err) {
-        const line = [
-          new Date().toISOString(),
-          chat.name,
+        logService.errorEvent({
+          timestamp: new Date().toISOString(),
+          chatName: chat.name,
           tag,
           filename,
-          `ERROR: ${err.message}`,
-        ].join('\t');
-        logService.error(line);
-        console.error(`[ERROR] no se pudo subir ${filename}: ${err.message}`);
+          senderId,
+          error: err,
+        });
+        console.error(`[ERROR] no se pudo subir ${filename}: ${maskSensitiveText(err.message)}`);
       }
     } catch (err) {
-      console.error('[handler] error inesperado:', err);
-      logService.error(`${new Date().toISOString()}\thandler\t-\t-\tERROR: ${err.message}`);
+      console.error('[handler] error inesperado:', maskSensitiveText(err && err.message));
+      logService.errorEvent({
+        timestamp: new Date().toISOString(),
+        chatName: 'handler',
+        tag: '-',
+        error: err,
+      });
     }
   };
 }

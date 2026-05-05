@@ -13,6 +13,9 @@ Este proyecto es un bot Node.js standalone que escucha grupos permitidos de What
 - No enviar mensajes reales ni activar pruebas contra servicios reales sin aprobacion.
 - No mostrar valores reales de tokens, credenciales, numeros telefonicos, links completos de Drive ni datos personales.
 - Actualizar `README.md`, `.env.example` y este archivo cuando cambien flujos, variables de entorno, comandos o deploy.
+- No introducir logs con telefonos completos, links completos de Drive, tokens, credenciales, payloads completos ni paths sensibles.
+- Sanitizar todo dato usado en filenames o persistencia.
+- Si se cambia logging, masking, envs o privacidad, actualizar documentacion en la misma fase.
 
 ## Archivos y carpetas sensibles
 

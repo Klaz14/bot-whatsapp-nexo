@@ -1,6 +1,7 @@
 const fs = require('fs');
 const { Readable } = require('stream');
 const { google } = require('googleapis');
+const { maskSensitiveText } = require('../utils/mask');
 
 function assertDriveConfig(config) {
   if (!config.google.driveFolderId || config.google.driveFolderId === 'YYY') {
@@ -74,7 +75,7 @@ function createDriveService(config) {
         lastErr = err;
         if (i < attempts) {
           const wait = 1000 * Math.pow(2, i - 1);
-          console.warn(`[upload] intento ${i}/${attempts} fallo: ${err.message}. Reintento en ${wait}ms`);
+          console.warn(`[upload] intento ${i}/${attempts} fallo: ${maskSensitiveText(err.message)}. Reintento en ${wait}ms`);
           await new Promise((resolve) => setTimeout(resolve, wait));
         }
       }

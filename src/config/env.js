@@ -97,6 +97,12 @@ function loadConfig() {
     dryRun: getBoolean('BOT_DRY_RUN', false),
     processingEnabled: getBoolean('BOT_PROCESSING_ENABLED', true),
     logLevel: process.env.BOT_LOG_LEVEL || 'info',
+    logging: {
+      format: process.env.LOG_FORMAT || 'text',
+      maskPhoneNumbers: getBoolean('LOG_MASK_PHONE_NUMBERS', true),
+      storeDriveLinks: getBoolean('LOG_STORE_DRIVE_LINKS', false),
+      maxFieldLength: getNumber('LOG_MAX_FIELD_LENGTH', 120),
+    },
     safety: {
       allowRealWhatsappConnection: getBoolean('ALLOW_REAL_WHATSAPP_CONNECTION', true),
       allowRealDriveUploads: getBoolean('ALLOW_REAL_DRIVE_UPLOADS', true),

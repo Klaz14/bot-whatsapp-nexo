@@ -1,4 +1,6 @@
 const { extFromMime } = require('./mime');
+const { maskSenderForFilename } = require('./mask');
+const { sanitizeExtension, sanitizeTag } = require('./sanitize');
 
 function timestamp() {
   const d = new Date();
@@ -7,9 +9,10 @@ function timestamp() {
 }
 
 function buildUploadFilename(tag, senderId, media) {
-  const sender = (senderId || 'unknown').replace(/[^0-9]/g, '') || 'unknown';
-  const ext = extFromMime(media.mimetype, media.filename);
-  return `${tag}_${timestamp()}_${sender}.${ext}`;
+  const safeTag = sanitizeTag(tag);
+  const sender = maskSenderForFilename(senderId);
+  const ext = sanitizeExtension(extFromMime(media.mimetype, media.filename));
+  return `${safeTag}_${timestamp()}_${sender}.${ext}`;
 }
 
 module.exports = {
