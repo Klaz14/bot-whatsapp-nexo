@@ -20,6 +20,9 @@ Este proyecto es un bot Node.js standalone que escucha grupos permitidos de What
 - No guardar telefonos, links de Drive, IDs crudos ni payloads completos en el store de idempotencia.
 - No marcar mensajes como procesados antes de una subida exitosa salvo diseno explicito aprobado.
 - Si cambia la estrategia de idempotencia, actualizar `README.md`, `.env.example` y este archivo.
+- No asumir que Chrome/Chromium esta instalado para Puppeteer.
+- No hardcodear rutas locales de Chrome/Chromium; usar `PUPPETEER_EXECUTABLE_PATH`.
+- No ejecutar `npm run setup:chrome` ni instalaciones de navegador sin autorizacion del usuario.
 
 ## Archivos y carpetas sensibles
 
@@ -48,6 +51,7 @@ Los secretos deben vivir fuera del codigo versionable. Usar variables de entorno
 - `node --check` sobre archivos en `src/`
 - `npm ls --depth=0 --no-audit --fund=false`
 - comandos de lectura como `rg`, `Get-Content` o listados de estructura
+- `npm exec -- puppeteer --help`
 
 ## Comandos prohibidos salvo aprobacion explicita
 
@@ -57,6 +61,7 @@ Los secretos deben vivir fuera del codigo versionable. Usar variables de entorno
 - cualquier comando que conecte Google Drive
 - comandos de deploy
 - comandos que roten, regeneren o escriban tokens
+- `npm run setup:chrome` salvo autorizacion explicita, porque puede descargar navegador
 
 ## Advertencias operativas
 

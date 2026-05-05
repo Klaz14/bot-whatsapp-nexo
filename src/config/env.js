@@ -64,6 +64,33 @@ function getBoolean(name, defaultValue = false) {
   return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
 }
 
+function getOptionalBoolean(name) {
+  const value = process.env[name];
+  if (value === undefined || value === '') return undefined;
+  return ['1', 'true', 'yes', 'on'].includes(value.toLowerCase());
+}
+
+function parseList(value, variableName) {
+  if (!value) return [];
+
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+
+  if (trimmed.startsWith('[')) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (!Array.isArray(parsed)) {
+        throw new Error('debe ser un array JSON');
+      }
+      return parsed.map((item) => String(item).trim()).filter(Boolean);
+    } catch (err) {
+      throw new Error(`${variableName} no es una lista valida: ${err.message}`);
+    }
+  }
+
+  return trimmed.split(',').map((item) => item.trim()).filter(Boolean);
+}
+
 function getNumber(name, defaultValue) {
   const value = process.env[name];
   if (value === undefined || value === '') return defaultValue;
@@ -141,6 +168,11 @@ function loadConfig() {
     whatsapp: {
       clientId: process.env.WHATSAPP_CLIENT_ID || undefined,
       groups: envGroups || fileConfig.groups || {},
+    },
+    puppeteer: {
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+      headless: getOptionalBoolean('PUPPETEER_HEADLESS'),
+      browserArgs: parseList(process.env.PUPPETEER_BROWSER_ARGS, 'PUPPETEER_BROWSER_ARGS'),
     },
   };
 }

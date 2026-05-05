@@ -9,11 +9,25 @@ function createWhatsappClient(config) {
     localAuthOptions.clientId = config.whatsapp.clientId;
   }
 
+  const puppeteerOptions = {
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      ...config.puppeteer.browserArgs,
+    ],
+  };
+
+  if (config.puppeteer.executablePath) {
+    puppeteerOptions.executablePath = config.puppeteer.executablePath;
+  }
+
+  if (config.puppeteer.headless !== undefined) {
+    puppeteerOptions.headless = config.puppeteer.headless;
+  }
+
   return new Client({
     authStrategy: new LocalAuth(localAuthOptions),
-    puppeteer: {
-      args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    },
+    puppeteer: puppeteerOptions,
   });
 }
 

@@ -61,6 +61,9 @@ GOOGLE_CREDENTIALS_PATH=credentials.json
 GOOGLE_TOKEN_PATH=token.json
 WHATSAPP_AUTH_DATA_PATH=.wwebjs_auth
 WHATSAPP_GROUPS_CONFIG_PATH=config.json
+PUPPETEER_EXECUTABLE_PATH=
+PUPPETEER_HEADLESS=
+PUPPETEER_BROWSER_ARGS=
 LOG_UPLOADS_PATH=uploads.log
 LOG_ERRORS_PATH=errors.log
 LOG_MASK_PHONE_NUMBERS=true
@@ -86,6 +89,36 @@ Por compatibilidad, si no se define `GOOGLE_DRIVE_FOLDER_ID` ni `WHATSAPP_ALLOWE
 ```
 
 La clave de `groups` debe coincidir exactamente con el nombre del grupo en WhatsApp. El valor se usa como tag en el nombre del archivo subido.
+
+## Chrome/Puppeteer
+
+`whatsapp-web.js` usa Puppeteer para abrir WhatsApp Web. Si aparece un error como `Could not find Chrome`, significa que Puppeteer no encontro el navegador requerido en su cache local o no tiene una ruta explicita a Chrome/Chromium.
+
+Solucion recomendada para preparar el entorno local:
+
+```bash
+npm run setup:chrome
+```
+
+Ese comando ejecuta `npx puppeteer browsers install chrome`. Puede descargar un navegador y requiere internet, pero no conecta WhatsApp ni Google Drive.
+
+Alternativa: usar un Chrome/Chromium ya instalado indicando la ruta en `.env`:
+
+```env
+PUPPETEER_EXECUTABLE_PATH=/path/to/chrome-or-chromium
+```
+
+En Windows, usar una ruta local propia como valor de `PUPPETEER_EXECUTABLE_PATH`. No hardcodear rutas personales en el codigo ni en archivos versionados.
+
+Variables opcionales:
+
+```env
+PUPPETEER_EXECUTABLE_PATH=
+PUPPETEER_HEADLESS=
+PUPPETEER_BROWSER_ARGS=
+```
+
+`PUPPETEER_BROWSER_ARGS` acepta una lista separada por comas o un array JSON. Si algun argumento contiene coma, usar array JSON. Si no se definen estas variables, el bot conserva el comportamiento default de Puppeteer/`whatsapp-web.js`.
 
 ## Google Drive OAuth
 
@@ -200,6 +233,8 @@ node --check src/auth/googleOAuth.js
 
 No ejecutar `npm start` ni `npm run auth` salvo instruccion explicita.
 
+`npm run setup:chrome` es una preparacion de entorno y no inicia el bot. Ejecutarlo solo cuando se necesite instalar el navegador de Puppeteer.
+
 ## Recuperacion basica
 
 - Si falta `credentials.json`, descargar nuevamente el OAuth Client ID o revisar `GOOGLE_CREDENTIALS_PATH`.
@@ -208,6 +243,7 @@ No ejecutar `npm start` ni `npm run auth` salvo instruccion explicita.
 - Si falla Drive, revisar permisos de la cuenta autorizada y `GOOGLE_DRIVE_FOLDER_ID`.
 - Si no procesa mensajes, revisar nombre exacto del grupo y tag en config/env.
 - Si reaparecen duplicados, revisar que `processed-messages.json` exista, sea escribible y no haya sido borrado.
+- Si Puppeteer informa `Could not find Chrome`, ejecutar `npm run setup:chrome` o configurar `PUPPETEER_EXECUTABLE_PATH`.
 
 ## Limitaciones
 
