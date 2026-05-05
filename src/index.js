@@ -2,6 +2,7 @@ const qrcode = require('qrcode-terminal');
 const { loadConfig } = require('./config/env');
 const { createDriveService } = require('./services/driveService');
 const { createLogService } = require('./services/logService');
+const { createProcessedStore } = require('./services/processedStore');
 const { createWhatsappClient } = require('./services/whatsappClient');
 const { createMessageHandler } = require('./handlers/messageHandler');
 
@@ -9,6 +10,7 @@ function startBot() {
   const config = loadConfig();
   const driveService = createDriveService(config);
   const logService = createLogService(config);
+  const processedStore = createProcessedStore(config);
   const client = createWhatsappClient(config);
 
   client.on('qr', (qr) => {
@@ -37,7 +39,7 @@ function startBot() {
     console.warn('Desconectado de WhatsApp:', reason);
   });
 
-  client.on('message', createMessageHandler({ config, driveService, logService }));
+  client.on('message', createMessageHandler({ config, driveService, logService, processedStore }));
 
   process.on('unhandledRejection', (err) => {
     console.error('Unhandled rejection:', err);

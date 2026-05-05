@@ -25,6 +25,7 @@ bot-whatsapp-drive/
     handlers/messageHandler.js
     services/driveService.js
     services/logService.js
+    services/processedStore.js
     services/whatsappClient.js
     utils/fileNames.js
     utils/mask.js
@@ -65,6 +66,9 @@ LOG_ERRORS_PATH=errors.log
 LOG_MASK_PHONE_NUMBERS=true
 LOG_STORE_DRIVE_LINKS=false
 LOG_MAX_FIELD_LENGTH=120
+PROCESSED_STORE_PATH=processed-messages.json
+PROCESSED_STORE_TTL_HOURS=720
+PROCESSED_STORE_MAX_ITEMS=5000
 BOT_PROCESSING_ENABLED=true
 ALLOW_REAL_WHATSAPP_CONNECTION=true
 ALLOW_REAL_DRIVE_UPLOADS=true
@@ -161,6 +165,28 @@ LOG_MAX_FIELD_LENGTH=120
 
 `LOG_STORE_DRIVE_LINKS=true` permite guardar/imprimir el link completo de Drive y debe usarse solo en entornos controlados. Aun con masking, `uploads.log` y `errors.log` deben tratarse como sensibles. No compartirlos ni subirlos a repositorios.
 
+## Idempotencia local
+
+Desde la Fase 3, el bot guarda un registro local de mensajes procesados para evitar subir duplicados si WhatsApp reentrega el mismo mensaje o si el proceso recibe el evento mas de una vez.
+
+Por defecto usa:
+
+```env
+PROCESSED_STORE_PATH=processed-messages.json
+PROCESSED_STORE_TTL_HOURS=720
+PROCESSED_STORE_MAX_ITEMS=5000
+```
+
+El store se guarda en filesystem local y esta ignorado por Git. No guarda telefonos, links de Drive ni payloads completos. La clave persistida es un hash SHA-256 construido a partir de identificadores internos del chat y del mensaje.
+
+El bot marca un mensaje como procesado solo despues de una subida exitosa a Drive. Si falla la subida, el mensaje no se marca como procesado y puede reintentarse.
+
+Limitaciones:
+
+- Si se borra `processed-messages.json`, un mensaje reentregado podria procesarse otra vez.
+- Si en el futuro corren multiples instancias del bot, este store local no alcanza; habria que disenar una idempotencia compartida.
+- El store se limpia por TTL y por cantidad maxima de entradas.
+
 ## Validaciones seguras
 
 Comandos permitidos para validar sintaxis sin conectar servicios:
@@ -181,12 +207,13 @@ No ejecutar `npm start` ni `npm run auth` salvo instruccion explicita.
 - Si se pierde `.wwebjs_auth/`, probablemente haya que escanear QR otra vez.
 - Si falla Drive, revisar permisos de la cuenta autorizada y `GOOGLE_DRIVE_FOLDER_ID`.
 - Si no procesa mensajes, revisar nombre exacto del grupo y tag en config/env.
+- Si reaparecen duplicados, revisar que `processed-messages.json` exista, sea escribible y no haya sido borrado.
 
 ## Limitaciones
 
 - `whatsapp-web.js` depende de WhatsApp Web y puede romperse ante cambios externos.
 - No es una integracion oficial WhatsApp Business Cloud API.
-- No hay idempotencia implementada todavia.
+- La idempotencia actual es local y no reemplaza una base compartida para multiples instancias.
 - El masking de logs es basico y debe revisarse si se agregan nuevos proveedores o payloads.
 - No hay deploy/staging formal en esta fase.
 

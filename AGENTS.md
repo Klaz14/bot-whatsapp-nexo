@@ -16,6 +16,10 @@ Este proyecto es un bot Node.js standalone que escucha grupos permitidos de What
 - No introducir logs con telefonos completos, links completos de Drive, tokens, credenciales, payloads completos ni paths sensibles.
 - Sanitizar todo dato usado en filenames o persistencia.
 - Si se cambia logging, masking, envs o privacidad, actualizar documentacion en la misma fase.
+- No versionar `processed-messages.json` ni derivados.
+- No guardar telefonos, links de Drive, IDs crudos ni payloads completos en el store de idempotencia.
+- No marcar mensajes como procesados antes de una subida exitosa salvo diseno explicito aprobado.
+- Si cambia la estrategia de idempotencia, actualizar `README.md`, `.env.example` y este archivo.
 
 ## Archivos y carpetas sensibles
 
@@ -30,6 +34,8 @@ No tocar, borrar, imprimir ni mover sin aprobacion explicita:
 - `errors.log`
 - `.env`
 - `.env.*` excepto `.env.example`
+- `processed-messages.json`
+- `processed-messages*.json`
 
 ## Politica de secretos
 

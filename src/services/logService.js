@@ -44,9 +44,23 @@ function createLogService(config) {
     return line;
   }
 
+  function duplicateEvent(event) {
+    const line = [
+      event.timestamp || new Date().toISOString(),
+      sanitizeGroupForLog(event.chatName, maxLength),
+      sanitizeTag(event.tag || '-'),
+      'duplicate_ignored',
+      'DUPLICATE: message already processed',
+    ].join('\t');
+
+    appendLog(config.paths.errorsLog, line);
+    return line;
+  }
+
   return {
     uploadEvent,
     errorEvent,
+    duplicateEvent,
     upload(line) {
       appendLog(config.paths.uploadsLog, safeField(line));
     },

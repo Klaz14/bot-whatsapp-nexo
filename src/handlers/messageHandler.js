@@ -1,8 +1,9 @@
 const { ALLOWED_MIME } = require('../utils/mime');
 const { buildUploadFilename } = require('../utils/fileNames');
 const { maskSensitiveText } = require('../utils/mask');
+const { buildMessageKey } = require('../services/processedStore');
 
-function createMessageHandler({ config, driveService, logService }) {
+function createMessageHandler({ config, driveService, logService, processedStore }) {
   return async function handleMessage(msg) {
     try {
       if (!config.processingEnabled) return;
@@ -14,6 +15,16 @@ function createMessageHandler({ config, driveService, logService }) {
       if (!tag) return;
 
       if (!msg.hasMedia) return;
+
+      const messageKey = buildMessageKey(msg, chat);
+      if (messageKey && processedStore.has(messageKey)) {
+        logService.duplicateEvent({
+          timestamp: new Date().toISOString(),
+          chatName: chat.name,
+          tag,
+        });
+        return;
+      }
 
       const media = await msg.downloadMedia();
       if (!media || !media.data) {
@@ -41,6 +52,9 @@ function createMessageHandler({ config, driveService, logService }) {
         });
         console.log(`[OK] ${chat.name} -> ${filename}`);
         console.log(`     ${driveRef}`);
+        if (messageKey) {
+          processedStore.markProcessed(messageKey, { status: 'uploaded' });
+        }
       } catch (err) {
         logService.errorEvent({
           timestamp: new Date().toISOString(),

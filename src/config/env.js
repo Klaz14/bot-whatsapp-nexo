@@ -75,6 +75,17 @@ function getNumber(name, defaultValue) {
   return parsed;
 }
 
+function getPositiveNumber(name, defaultValue) {
+  const value = process.env[name];
+  if (value === undefined || value === '') return defaultValue;
+
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return defaultValue;
+  }
+  return parsed;
+}
+
 function loadConfig() {
   loadDotEnvFile(resolveProjectPath(process.env.ENV_FILE, '.env'));
 
@@ -114,6 +125,11 @@ function loadConfig() {
       whatsappAuthData: resolveProjectPath(process.env.WHATSAPP_AUTH_DATA_PATH, '.wwebjs_auth'),
       uploadsLog: resolveProjectPath(process.env.LOG_UPLOADS_PATH, 'uploads.log'),
       errorsLog: resolveProjectPath(process.env.LOG_ERRORS_PATH, 'errors.log'),
+      processedStore: resolveProjectPath(process.env.PROCESSED_STORE_PATH, 'processed-messages.json'),
+    },
+    processedStore: {
+      ttlHours: getPositiveNumber('PROCESSED_STORE_TTL_HOURS', 720),
+      maxItems: getPositiveNumber('PROCESSED_STORE_MAX_ITEMS', 5000),
     },
     google: {
       driveFolderId: process.env.GOOGLE_DRIVE_FOLDER_ID || fileConfig.driveFolderId,
