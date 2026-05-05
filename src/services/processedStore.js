@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { maskSensitiveText } = require('../utils/mask');
+const { buildAuditTime } = require('../utils/time');
 
 const STORE_VERSION = 1;
 
@@ -105,8 +106,11 @@ function createProcessedStore(config) {
 
   function markProcessed(messageKey, metadata = {}) {
     if (!messageKey) return;
+    const auditTime = buildAuditTime(new Date(), options.timeZone);
     store.entries[messageKey] = {
-      processedAt: new Date().toISOString(),
+      processedAt: auditTime.utc,
+      processedAtLocal: auditTime.local,
+      timeZone: auditTime.timeZone,
       status: metadata.status || 'uploaded',
     };
     save();

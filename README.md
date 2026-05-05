@@ -57,6 +57,7 @@ Variables principales:
 
 ```env
 GOOGLE_DRIVE_FOLDER_ID=
+BOT_TIME_ZONE=America/Argentina/Buenos_Aires
 GOOGLE_CREDENTIALS_PATH=credentials.json
 GOOGLE_TOKEN_PATH=token.json
 WHATSAPP_AUTH_DATA_PATH=.wwebjs_auth
@@ -198,6 +199,29 @@ LOG_MAX_FIELD_LENGTH=120
 
 `LOG_STORE_DRIVE_LINKS=true` permite guardar/imprimir el link completo de Drive y debe usarse solo en entornos controlados. Aun con masking, `uploads.log` y `errors.log` deben tratarse como sensibles. No compartirlos ni subirlos a repositorios.
 
+## Timestamps de auditoria
+
+El bot conserva timestamps tecnicos en UTC con formato ISO y `Z` cuando necesita calcular o comparar tiempos. Para auditoria humana tambien genera una hora local explicita controlada por:
+
+```env
+BOT_TIME_ZONE=America/Argentina/Buenos_Aires
+```
+
+Por defecto se usa `America/Argentina/Buenos_Aires`, independientemente del timezone del sistema operativo.
+
+Las entradas nuevas de `processed-messages.json` guardan:
+
+```json
+{
+  "processedAt": "2026-05-05T15:24:42.696Z",
+  "processedAtLocal": "2026-05-05 12:24:42",
+  "timeZone": "America/Argentina/Buenos_Aires",
+  "status": "uploaded"
+}
+```
+
+Las entradas historicas pueden no tener `processedAtLocal` ni `timeZone`; no se migran automaticamente. El TTL de idempotencia sigue usando `processedAt` en UTC.
+
 ## Idempotencia local
 
 Desde la Fase 3, el bot guarda un registro local de mensajes procesados para evitar subir duplicados si WhatsApp reentrega el mismo mensaje o si el proceso recibe el evento mas de una vez.
@@ -219,6 +243,7 @@ Limitaciones:
 - Si se borra `processed-messages.json`, un mensaje reentregado podria procesarse otra vez.
 - Si en el futuro corren multiples instancias del bot, este store local no alcanza; habria que disenar una idempotencia compartida.
 - El store se limpia por TTL y por cantidad maxima de entradas.
+- Las entradas historicas pueden tener solo timestamp UTC; las nuevas agregan hora local de auditoria.
 
 ## Validaciones seguras
 

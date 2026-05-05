@@ -1,6 +1,7 @@
 const fs = require('fs');
 const { formatDriveReference, maskPhone, maskSensitiveText } = require('../utils/mask');
 const { limitString, sanitizeFilenamePart, sanitizeGroupForLog, sanitizeTag } = require('../utils/sanitize');
+const { buildAuditTime } = require('../utils/time');
 
 function createLogService(config) {
   const maxLength = config.logging.maxFieldLength;
@@ -15,10 +16,17 @@ function createLogService(config) {
     return maskSensitiveText(limitString(value, maxLength), maxLength);
   }
 
+  function auditTimestamp(value) {
+    const date = value ? new Date(value) : new Date();
+    const safeDate = Number.isFinite(date.getTime()) ? date : new Date();
+    const auditTime = buildAuditTime(safeDate, config.timeZone);
+    return `${auditTime.local} ${auditTime.timeZone}`;
+  }
+
   function uploadEvent(event) {
     const driveRef = formatDriveReference(event.driveResult, config.logging.storeDriveLinks);
     const line = [
-      event.timestamp || new Date().toISOString(),
+      auditTimestamp(event.timestamp),
       sanitizeGroupForLog(event.chatName, maxLength),
       sanitizeTag(event.tag),
       sanitizeFilenamePart(event.filename, 'upload', maxLength),
@@ -32,7 +40,7 @@ function createLogService(config) {
   function errorEvent(event) {
     const sender = config.logging.maskPhoneNumbers ? maskPhone(event.senderId) : safeField(event.senderId);
     const line = [
-      event.timestamp || new Date().toISOString(),
+      auditTimestamp(event.timestamp),
       sanitizeGroupForLog(event.chatName, maxLength),
       sanitizeTag(event.tag || '-'),
       event.filename ? sanitizeFilenamePart(event.filename, 'upload', maxLength) : '-',
@@ -46,7 +54,7 @@ function createLogService(config) {
 
   function duplicateEvent(event) {
     const line = [
-      event.timestamp || new Date().toISOString(),
+      auditTimestamp(event.timestamp),
       sanitizeGroupForLog(event.chatName, maxLength),
       sanitizeTag(event.tag || '-'),
       'duplicate_ignored',

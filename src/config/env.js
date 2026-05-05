@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { PROJECT_ROOT, resolveProjectPath } = require('./paths');
+const { DEFAULT_TIME_ZONE, normalizeTimeZone } = require('../utils/time');
 
 const DEFAULT_GOOGLE_SCOPE = 'https://www.googleapis.com/auth/drive.file';
 
@@ -132,6 +133,7 @@ function loadConfig() {
   return {
     projectRoot: PROJECT_ROOT,
     env: process.env.BOT_ENV || process.env.NODE_ENV || 'local',
+    timeZone: normalizeTimeZone(process.env.BOT_TIME_ZONE || DEFAULT_TIME_ZONE),
     dryRun: getBoolean('BOT_DRY_RUN', false),
     processingEnabled: getBoolean('BOT_PROCESSING_ENABLED', true),
     logLevel: process.env.BOT_LOG_LEVEL || 'info',
@@ -157,6 +159,7 @@ function loadConfig() {
     processedStore: {
       ttlHours: getPositiveNumber('PROCESSED_STORE_TTL_HOURS', 720),
       maxItems: getPositiveNumber('PROCESSED_STORE_MAX_ITEMS', 5000),
+      timeZone: normalizeTimeZone(process.env.BOT_TIME_ZONE || DEFAULT_TIME_ZONE),
     },
     google: {
       driveFolderId: process.env.GOOGLE_DRIVE_FOLDER_ID || fileConfig.driveFolderId,

@@ -23,6 +23,9 @@ Este proyecto es un bot Node.js standalone que escucha grupos permitidos de What
 - No asumir que Chrome/Chromium esta instalado para Puppeteer.
 - No hardcodear rutas locales de Chrome/Chromium; usar `PUPPETEER_EXECUTABLE_PATH`.
 - No ejecutar `npm run setup:chrome` ni instalaciones de navegador sin autorizacion del usuario.
+- Mantener UTC para calculos tecnicos y agregar hora local explicita para auditoria humana.
+- No depender del timezone del sistema operativo; usar `BOT_TIME_ZONE`.
+- Si cambia el formato de timestamps, actualizar `README.md` y `.env.example`.
 
 ## Archivos y carpetas sensibles
 
