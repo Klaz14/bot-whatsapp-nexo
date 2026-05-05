@@ -11,3 +11,4 @@ uploads.log
 errors.log
 *.log
 .DS_Store
+config.json
