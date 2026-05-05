@@ -114,6 +114,11 @@ function getPositiveNumber(name, defaultValue) {
   return parsed;
 }
 
+function getWhatsappWebCacheType() {
+  const value = (process.env.WHATSAPP_WEB_VERSION_CACHE_TYPE || 'none').toLowerCase();
+  return ['none', 'local'].includes(value) ? value : 'none';
+}
+
 function loadConfig() {
   loadDotEnvFile(resolveProjectPath(process.env.ENV_FILE, '.env'));
 
@@ -152,6 +157,7 @@ function loadConfig() {
       credentials: resolveProjectPath(process.env.GOOGLE_CREDENTIALS_PATH, 'credentials.json'),
       token: resolveProjectPath(process.env.GOOGLE_TOKEN_PATH, 'token.json'),
       whatsappAuthData: resolveProjectPath(process.env.WHATSAPP_AUTH_DATA_PATH, '.wwebjs_auth'),
+      whatsappWebCache: resolveProjectPath(process.env.WHATSAPP_WEB_CACHE_PATH, '.wwebjs_cache'),
       uploadsLog: resolveProjectPath(process.env.LOG_UPLOADS_PATH, 'uploads.log'),
       errorsLog: resolveProjectPath(process.env.LOG_ERRORS_PATH, 'errors.log'),
       processedStore: resolveProjectPath(process.env.PROCESSED_STORE_PATH, 'processed-messages.json'),
@@ -172,6 +178,9 @@ function loadConfig() {
     whatsapp: {
       clientId: process.env.WHATSAPP_CLIENT_ID || undefined,
       groups: envGroups || fileConfig.groups || {},
+      readyTimeoutSeconds: getPositiveNumber('WHATSAPP_READY_TIMEOUT_SECONDS', 120),
+      webVersion: process.env.WHATSAPP_WEB_VERSION || undefined,
+      webVersionCacheType: getWhatsappWebCacheType(),
     },
     puppeteer: {
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,

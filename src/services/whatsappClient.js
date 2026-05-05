@@ -25,10 +25,22 @@ function createWhatsappClient(config) {
     puppeteerOptions.headless = config.puppeteer.headless;
   }
 
-  return new Client({
+  const clientOptions = {
     authStrategy: new LocalAuth(localAuthOptions),
     puppeteer: puppeteerOptions,
-  });
+    webVersionCache: { type: config.whatsapp.webVersionCacheType },
+  };
+
+  if (config.whatsapp.webVersion) {
+    clientOptions.webVersion = config.whatsapp.webVersion;
+  }
+
+  if (config.whatsapp.webVersionCacheType === 'local') {
+    clientOptions.webVersionCache.path = config.paths.whatsappWebCache;
+    clientOptions.webVersionCache.strict = false;
+  }
+
+  return new Client(clientOptions);
 }
 
 module.exports = {

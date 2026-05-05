@@ -23,6 +23,9 @@ Este proyecto es un bot Node.js standalone que escucha grupos permitidos de What
 - No asumir que Chrome/Chromium esta instalado para Puppeteer.
 - No hardcodear rutas locales de Chrome/Chromium; usar `PUPPETEER_EXECUTABLE_PATH`.
 - No ejecutar `npm run setup:chrome` ni instalaciones de navegador sin autorizacion del usuario.
+- No borrar `.wwebjs_auth/` ni `.wwebjs_cache/` para diagnosticar `ready`; primero agregar/usar logs seguros de eventos.
+- Mantener `WHATSAPP_READY_TIMEOUT_SECONDS` como diagnostico: no debe cerrar un bot operativo 24/7.
+- No fijar `WHATSAPP_WEB_VERSION` ni cambiar `WHATSAPP_WEB_VERSION_CACHE_TYPE` sin documentar el motivo y la prueba manual.
 - Mantener UTC para calculos tecnicos y agregar hora local explicita para auditoria humana.
 - No depender del timezone del sistema operativo; usar `BOT_TIME_ZONE`.
 - Si cambia el formato de timestamps, actualizar `README.md` y `.env.example`.

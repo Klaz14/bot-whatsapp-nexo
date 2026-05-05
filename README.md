@@ -65,6 +65,10 @@ GOOGLE_OAUTH_REDIRECT_PORT=53682
 GOOGLE_OAUTH_TIMEOUT_SECONDS=300
 WHATSAPP_AUTH_DATA_PATH=.wwebjs_auth
 WHATSAPP_GROUPS_CONFIG_PATH=config.json
+WHATSAPP_READY_TIMEOUT_SECONDS=120
+WHATSAPP_WEB_VERSION=
+WHATSAPP_WEB_VERSION_CACHE_TYPE=none
+WHATSAPP_WEB_CACHE_PATH=.wwebjs_cache
 PUPPETEER_EXECUTABLE_PATH=
 PUPPETEER_HEADLESS=
 PUPPETEER_BROWSER_ARGS=
@@ -161,6 +165,30 @@ npm start
 ```
 
 La sesion queda guardada en `.wwebjs_auth/`. No borrar ni mover esa carpeta sin backup, porque podria requerir escanear QR nuevamente.
+
+Durante el arranque el bot informa eventos seguros de diagnostico de WhatsApp Web, como carga, cambios de estado, autenticacion y `ready`. Si la sesion se autentica pero `ready` no llega, despues de:
+
+```env
+WHATSAPP_READY_TIMEOUT_SECONDS=120
+```
+
+se imprime una advertencia de diagnostico y el proceso queda vivo para observacion. Ese timeout no borra sesion, no borra cache y no corta un bot ya listo para operar 24/7.
+
+Por defecto el bot evita servir HTML local cacheado de WhatsApp Web:
+
+```env
+WHATSAPP_WEB_VERSION_CACHE_TYPE=none
+```
+
+Si hace falta probar una version cacheada especifica sin borrar `.wwebjs_cache/`, se puede usar una configuracion local controlada:
+
+```env
+WHATSAPP_WEB_VERSION=2.x.x
+WHATSAPP_WEB_VERSION_CACHE_TYPE=local
+WHATSAPP_WEB_CACHE_PATH=.wwebjs_cache
+```
+
+No versionar estos ajustes si contienen datos operativos locales.
 
 ## Ejecucion local
 
@@ -284,6 +312,7 @@ No ejecutar `npm start` ni `npm run auth` salvo instruccion explicita.
 - Si no procesa mensajes, revisar nombre exacto del grupo y tag en config/env.
 - Si reaparecen duplicados, revisar que `processed-messages.json` exista, sea escribible y no haya sido borrado.
 - Si Puppeteer informa `Could not find Chrome`, ejecutar `npm run setup:chrome` o configurar `PUPPETEER_EXECUTABLE_PATH`.
+- Si queda en `Autenticado` y no llega a `Bot listo y escuchando`, observar los eventos `WhatsApp loading`, `WhatsApp state changed` y la advertencia de `WHATSAPP_READY_TIMEOUT_SECONDS`. No borrar `.wwebjs_auth/` ni `.wwebjs_cache/` como primera medida.
 
 ## Limitaciones
 
