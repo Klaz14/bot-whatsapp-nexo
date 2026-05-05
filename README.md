@@ -98,6 +98,8 @@ Por compatibilidad, si no se define `GOOGLE_DRIVE_FOLDER_ID` ni `WHATSAPP_ALLOWE
 
 La clave de `groups` debe coincidir exactamente con el nombre del grupo en WhatsApp. El valor se usa como tag en el nombre del archivo subido.
 
+`GOOGLE_DRIVE_FOLDER_ID` o `config.json.driveFolderId` debe apuntar a la carpeta raiz operativa de Drive. Para el flujo actual de comprobantes, esa carpeta raiz debe ser `Entrantes`. No guardar IDs reales en archivos versionados.
+
 ## Chrome/Puppeteer
 
 `whatsapp-web.js` usa Puppeteer para abrir WhatsApp Web. Si aparece un error como `Could not find Chrome`, significa que Puppeteer no encontro el navegador requerido en su cache local o no tiene una ruta explicita a Chrome/Chromium.
@@ -198,6 +200,22 @@ npm start
 
 Cuando el bot esta listo, escucha mensajes de grupos configurados. Si el mensaje trae imagen o PDF, lo descarga y lo sube a Drive. Otros tipos de archivo se ignoran.
 
+Para esta fase, toda imagen o PDF recibido en un grupo configurado se considera comprobante. No hay OCR, IA, reconocimiento visual, lectura bancaria ni validacion semantica del contenido.
+
+Los comprobantes se organizan dentro de la carpeta raiz configurada con esta estructura:
+
+```text
+Entrantes/<NombreGrupoSanitizado>/<MM-YYYY>/<DD>/archivo
+```
+
+Ejemplo:
+
+```text
+Entrantes/BOT_TEST/05-2026/05/BT_2026-05-05_13-40-22_sender_6110.jpg
+```
+
+El nombre de carpeta del grupo se basa en el nombre real del grupo de WhatsApp sanitizado, no en el tag. Las carpetas de mes y dia usan fecha local operativa segun `BOT_TIME_ZONE`, por defecto `America/Argentina/Buenos_Aires`. El bot busca carpetas existentes antes de crear nuevas y mantiene una cache en memoria mientras el proceso corre.
+
 Para bloquear procesamiento sin cambiar codigo:
 
 ```env
@@ -230,6 +248,7 @@ Los logs historicos no se migran ni se borran automaticamente. Desde la Fase 2, 
 - Los telefonos/remitentes no se guardan completos.
 - Los nombres de archivo usan una referencia parcial del remitente, no el telefono completo.
 - Los links completos de Drive no se guardan por defecto.
+- La ruta logica de Drive puede registrarse como `GrupoSanitizado/MM-YYYY/DD`.
 - Los errores se recortan y se filtran para evitar tokens, URLs largas y datos sensibles obvios.
 
 Flags relacionados:
@@ -309,6 +328,7 @@ No ejecutar `npm start` ni `npm run auth` salvo instruccion explicita.
 - Si falta `token.json`, ejecutar `npm run auth` manualmente.
 - Si se pierde `.wwebjs_auth/`, probablemente haya que escanear QR otra vez.
 - Si falla Drive, revisar permisos de la cuenta autorizada y `GOOGLE_DRIVE_FOLDER_ID`.
+- Si no aparecen subcarpetas esperadas en Drive, confirmar que la cuenta OAuth tenga permisos sobre la carpeta raiz `Entrantes` y que el scope permita buscar/crear carpetas.
 - Si no procesa mensajes, revisar nombre exacto del grupo y tag en config/env.
 - Si reaparecen duplicados, revisar que `processed-messages.json` exista, sea escribible y no haya sido borrado.
 - Si Puppeteer informa `Could not find Chrome`, ejecutar `npm run setup:chrome` o configurar `PUPPETEER_EXECUTABLE_PATH`.
@@ -330,5 +350,5 @@ Solo con aprobacion:
 2. Confirmar que el grupo es de prueba.
 3. Ejecutar `npm start`.
 4. Enviar una imagen y un PDF al grupo de prueba.
-5. Confirmar subida a Drive.
+5. Confirmar subida a Drive dentro de `Entrantes/<Grupo>/<MM-YYYY>/<DD>/`.
 6. Revisar logs sin compartir datos sensibles.

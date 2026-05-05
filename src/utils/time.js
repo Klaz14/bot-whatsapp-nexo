@@ -44,9 +44,34 @@ function buildAuditTime(date = new Date(), timeZone = DEFAULT_TIME_ZONE) {
   };
 }
 
+function getLocalDateParts(date = new Date(), timeZone = DEFAULT_TIME_ZONE) {
+  const safeTimeZone = normalizeTimeZone(timeZone);
+  const safeDate = date instanceof Date && Number.isFinite(date.getTime()) ? date : new Date();
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: safeTimeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(safeDate);
+
+  return Object.fromEntries(parts.map((part) => [part.type, part.value]));
+}
+
+function formatLocalMonthForDriveFolder(date = new Date(), timeZone = DEFAULT_TIME_ZONE) {
+  const values = getLocalDateParts(date, timeZone);
+  return `${values.month}-${values.year}`;
+}
+
+function formatLocalDayForDriveFolder(date = new Date(), timeZone = DEFAULT_TIME_ZONE) {
+  const values = getLocalDateParts(date, timeZone);
+  return values.day;
+}
+
 module.exports = {
   DEFAULT_TIME_ZONE,
   buildAuditTime,
+  formatLocalDayForDriveFolder,
+  formatLocalMonthForDriveFolder,
   normalizeTimeZone,
   toLocalAuditString,
   toUtcISOString,

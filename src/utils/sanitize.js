@@ -29,6 +29,10 @@ function sanitizeTag(value) {
   return sanitizeFilenamePart(value, 'tag', 32);
 }
 
+function sanitizeDriveFolderName(value, fallback = 'folder', maxLength = 80) {
+  return sanitizeFilenamePart(value, fallback, maxLength);
+}
+
 function sanitizeExtension(value) {
   const cleaned = String(value || '')
     .toLowerCase()
@@ -51,6 +55,7 @@ function sanitizeGroupForLog(value, maxLength = DEFAULT_MAX_FIELD_LENGTH) {
 module.exports = {
   DEFAULT_MAX_FIELD_LENGTH,
   limitString,
+  sanitizeDriveFolderName,
   sanitizeExtension,
   sanitizeFilenamePart,
   sanitizeGroupForLog,

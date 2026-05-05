@@ -60,7 +60,7 @@ function startBot() {
     for (const [name, tag] of Object.entries(config.whatsapp.groups)) {
       console.log(`  - "${name}" -> tag "${tag}"`);
     }
-    console.log(`Carpeta destino de Drive: ${config.google.driveFolderId}\n`);
+    console.log(`Carpeta destino de Drive: ${maskSensitiveText(config.google.driveFolderId)}\n`);
   });
 
   client.on('disconnected', (reason) => {

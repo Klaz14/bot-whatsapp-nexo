@@ -34,6 +34,11 @@ Este proyecto es un bot Node.js standalone que escucha grupos permitidos de What
 - Mantener validacion de `state` en el flujo OAuth local.
 - No cambiar scopes OAuth sin una fase explicita y documentada.
 - Si cambia OAuth o sus envs, actualizar `README.md` y `.env.example`.
+- Mantener la organizacion de comprobantes en Drive como `Entrantes/<NombreGrupoSanitizado>/<MM-YYYY>/<DD>/archivo` salvo fase explicita.
+- No crear carpetas reales en Drive durante auditorias o validaciones automaticas.
+- No loguear IDs completos de carpetas, links completos de Drive ni rutas privadas; usar ruta logica sanitizada cuando haga falta.
+- No tocar `config.json` real sin autorizacion explicita; la carpeta raiz operativa debe configurarse localmente.
+- Para carpetas de mes/dia en Drive, usar fecha local operativa con `BOT_TIME_ZONE`, no UTC.
 
 ## Archivos y carpetas sensibles
 

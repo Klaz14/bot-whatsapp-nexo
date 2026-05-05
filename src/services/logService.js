@@ -1,6 +1,12 @@
 const fs = require('fs');
 const { formatDriveReference, maskPhone, maskSensitiveText } = require('../utils/mask');
-const { limitString, sanitizeFilenamePart, sanitizeGroupForLog, sanitizeTag } = require('../utils/sanitize');
+const {
+  limitString,
+  sanitizeDriveFolderName,
+  sanitizeFilenamePart,
+  sanitizeGroupForLog,
+  sanitizeTag,
+} = require('../utils/sanitize');
 const { buildAuditTime } = require('../utils/time');
 
 function createLogService(config) {
@@ -23,6 +29,14 @@ function createLogService(config) {
     return `${auditTime.local} ${auditTime.timeZone}`;
   }
 
+  function safeDrivePath(value) {
+    if (!value) return '-';
+    return String(value)
+      .split('/')
+      .map((part) => sanitizeDriveFolderName(part, 'folder', 80))
+      .join('/');
+  }
+
   function uploadEvent(event) {
     const driveRef = formatDriveReference(event.driveResult, config.logging.storeDriveLinks);
     const line = [
@@ -30,6 +44,7 @@ function createLogService(config) {
       sanitizeGroupForLog(event.chatName, maxLength),
       sanitizeTag(event.tag),
       sanitizeFilenamePart(event.filename, 'upload', maxLength),
+      safeDrivePath(event.drivePath || (event.driveResult && event.driveResult.folderPath)),
       safeField(driveRef),
     ].join('\t');
 
@@ -44,6 +59,7 @@ function createLogService(config) {
       sanitizeGroupForLog(event.chatName, maxLength),
       sanitizeTag(event.tag || '-'),
       event.filename ? sanitizeFilenamePart(event.filename, 'upload', maxLength) : '-',
+      safeDrivePath(event.drivePath),
       sender,
       `ERROR: ${maskSensitiveText(event.error && event.error.message ? event.error.message : event.error, maxLength)}`,
     ].join('\t');

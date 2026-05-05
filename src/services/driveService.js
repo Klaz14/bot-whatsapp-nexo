@@ -2,6 +2,13 @@ const fs = require('fs');
 const { Readable } = require('stream');
 const { google } = require('googleapis');
 const { maskSensitiveText } = require('../utils/mask');
+const { sanitizeDriveFolderName } = require('../utils/sanitize');
+const {
+  formatLocalDayForDriveFolder,
+  formatLocalMonthForDriveFolder,
+} = require('../utils/time');
+
+const DRIVE_FOLDER_MIME = 'application/vnd.google-apps.folder';
 
 function assertDriveConfig(config) {
   if (!config.google.driveFolderId || config.google.driveFolderId === 'YYY') {
@@ -17,6 +24,23 @@ function assertDriveConfig(config) {
     console.error('Falta token.json. Corri primero:  node auth.js');
     process.exit(1);
   }
+}
+
+function escapeDriveQueryString(value) {
+  return String(value || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+function buildDriveFolderPath(groupName, date, timeZone) {
+  const groupFolderName = sanitizeDriveFolderName(groupName, 'grupo');
+  const monthFolderName = formatLocalMonthForDriveFolder(date, timeZone);
+  const dayFolderName = formatLocalDayForDriveFolder(date, timeZone);
+
+  return {
+    groupFolderName,
+    monthFolderName,
+    dayFolderName,
+    logicalPath: `${groupFolderName}/${monthFolderName}/${dayFolderName}`,
+  };
 }
 
 function createDriveService(config) {
@@ -45,23 +69,102 @@ function createDriveService(config) {
   });
 
   const drive = google.drive({ version: 'v3', auth: oauth2 });
+  const folderCache = new Map();
 
-  async function uploadWithRetry(filename, mime, buffer, attempts = 3) {
+  function cacheKey(parentId, folderName) {
+    return `${parentId}\0${folderName}`;
+  }
+
+  async function findFolderByName(parentId, folderName) {
+    const escapedParentId = escapeDriveQueryString(parentId);
+    const escapedFolderName = escapeDriveQueryString(folderName);
+    const res = await drive.files.list({
+      q: [
+        `mimeType = '${DRIVE_FOLDER_MIME}'`,
+        `name = '${escapedFolderName}'`,
+        `'${escapedParentId}' in parents`,
+        'trashed = false',
+      ].join(' and '),
+      fields: 'files(id, name, createdTime)',
+      orderBy: 'createdTime',
+      pageSize: 10,
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+    });
+
+    const folders = res.data.files || [];
+    return folders[0] || null;
+  }
+
+  async function createFolder(parentId, folderName) {
+    const res = await drive.files.create({
+      requestBody: {
+        name: folderName,
+        mimeType: DRIVE_FOLDER_MIME,
+        parents: [parentId],
+      },
+      fields: 'id, name',
+      supportsAllDrives: true,
+    });
+
+    return res.data;
+  }
+
+  async function getOrCreateFolder(parentId, folderName) {
+    const key = cacheKey(parentId, folderName);
+    if (folderCache.has(key)) return folderCache.get(key);
+
+    const existing = await findFolderByName(parentId, folderName);
+    const folder = existing || await createFolder(parentId, folderName);
+    folderCache.set(key, folder);
+    return folder;
+  }
+
+  async function resolveUploadFolder(options = {}) {
+    const date = options.date instanceof Date ? options.date : new Date();
+    const folderPath = buildDriveFolderPath(options.groupName, date, config.timeZone);
+
     if (config.dryRun || !config.safety.allowRealDriveUploads) {
+      return {
+        id: config.google.driveFolderId,
+        ...folderPath,
+      };
+    }
+
+    const groupFolder = await getOrCreateFolder(config.google.driveFolderId, folderPath.groupFolderName);
+    const monthFolder = await getOrCreateFolder(groupFolder.id, folderPath.monthFolderName);
+    const dayFolder = await getOrCreateFolder(monthFolder.id, folderPath.dayFolderName);
+
+    return {
+      id: dayFolder.id,
+      ...folderPath,
+    };
+  }
+
+  async function uploadWithRetry(filename, mime, buffer, options = {}, attempts = 3) {
+    if (typeof options === 'number') {
+      attempts = options;
+      options = {};
+    }
+
+    if (config.dryRun || !config.safety.allowRealDriveUploads) {
+      const folderPath = buildDriveFolderPath(options.groupName, options.date || new Date(), config.timeZone);
       console.warn('[upload] subida a Drive bloqueada por configuracion de seguridad.');
       return {
         id: 'dry-run',
         webViewLink: '',
+        folderPath: folderPath.logicalPath,
       };
     }
 
     let lastErr;
     for (let i = 1; i <= attempts; i++) {
       try {
+        const uploadFolder = await resolveUploadFolder(options);
         const res = await drive.files.create({
           requestBody: {
             name: filename,
-            parents: [config.google.driveFolderId],
+            parents: [uploadFolder.id],
           },
           media: {
             mimeType: mime,
@@ -70,7 +173,10 @@ function createDriveService(config) {
           fields: 'id, webViewLink',
           supportsAllDrives: true,
         });
-        return res.data;
+        return {
+          ...res.data,
+          folderPath: uploadFolder.logicalPath,
+        };
       } catch (err) {
         lastErr = err;
         if (i < attempts) {
@@ -84,10 +190,13 @@ function createDriveService(config) {
   }
 
   return {
+    resolveUploadFolder,
     uploadWithRetry,
   };
 }
 
 module.exports = {
+  buildDriveFolderPath,
   createDriveService,
+  escapeDriveQueryString,
 };

@@ -3,6 +3,16 @@ const { buildUploadFilename } = require('../utils/fileNames');
 const { maskSensitiveText } = require('../utils/mask');
 const { buildMessageKey } = require('../services/processedStore');
 
+function getMessageDate(msg) {
+  const timestamp = Number(msg && msg.timestamp);
+  if (Number.isFinite(timestamp) && timestamp > 0) {
+    const milliseconds = timestamp > 1000000000000 ? timestamp : timestamp * 1000;
+    const date = new Date(milliseconds);
+    if (Number.isFinite(date.getTime())) return date;
+  }
+  return new Date();
+}
+
 function createMessageHandler({ config, driveService, logService, processedStore }) {
   return async function handleMessage(msg) {
     try {
@@ -40,17 +50,22 @@ function createMessageHandler({ config, driveService, logService, processedStore
       const senderId = msg.author || msg.from || 'unknown';
       const filename = buildUploadFilename(tag, senderId, media);
       const buffer = Buffer.from(media.data, 'base64');
+      const messageDate = getMessageDate(msg);
 
       try {
-        const result = await driveService.uploadWithRetry(filename, media.mimetype, buffer);
+        const result = await driveService.uploadWithRetry(filename, media.mimetype, buffer, {
+          groupName: chat.name,
+          date: messageDate,
+        });
         const driveRef = logService.uploadEvent({
           timestamp: new Date().toISOString(),
           chatName: chat.name,
           tag,
           filename,
           driveResult: result,
+          drivePath: result.folderPath,
         });
-        console.log(`[OK] ${chat.name} -> ${filename}`);
+        console.log(`[OK] ${chat.name} -> ${result.folderPath}/${filename}`);
         console.log(`     ${driveRef}`);
         if (messageKey) {
           processedStore.markProcessed(messageKey, { status: 'uploaded' });
@@ -62,6 +77,7 @@ function createMessageHandler({ config, driveService, logService, processedStore
           tag,
           filename,
           senderId,
+          drivePath: err && err.folderPath,
           error: err,
         });
         console.error(`[ERROR] no se pudo subir ${filename}: ${maskSensitiveText(err.message)}`);
@@ -80,4 +96,5 @@ function createMessageHandler({ config, driveService, logService, processedStore
 
 module.exports = {
   createMessageHandler,
+  getMessageDate,
 };
