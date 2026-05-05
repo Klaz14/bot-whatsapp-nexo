@@ -26,6 +26,11 @@ Este proyecto es un bot Node.js standalone que escucha grupos permitidos de What
 - Mantener UTC para calculos tecnicos y agregar hora local explicita para auditoria humana.
 - No depender del timezone del sistema operativo; usar `BOT_TIME_ZONE`.
 - Si cambia el formato de timestamps, actualizar `README.md` y `.env.example`.
+- No imprimir codigos OAuth, tokens, secrets, query params completos ni URLs de callback con parametros sensibles.
+- Mantener el servidor OAuth local ligado a `127.0.0.1` por defecto.
+- Mantener validacion de `state` en el flujo OAuth local.
+- No cambiar scopes OAuth sin una fase explicita y documentada.
+- Si cambia OAuth o sus envs, actualizar `README.md` y `.env.example`.
 
 ## Archivos y carpetas sensibles
 

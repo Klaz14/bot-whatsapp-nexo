@@ -127,7 +127,7 @@ function loadConfig() {
     'WHATSAPP_ALLOWED_GROUPS_JSON'
   );
 
-  const oauthRedirectHost = process.env.GOOGLE_OAUTH_REDIRECT_HOST || 'localhost';
+  const oauthRedirectHost = process.env.GOOGLE_OAUTH_REDIRECT_HOST || '127.0.0.1';
   const oauthRedirectPort = getNumber('GOOGLE_OAUTH_REDIRECT_PORT', 53682);
 
   return {
@@ -167,6 +167,7 @@ function loadConfig() {
       oauthRedirectPort,
       oauthRedirectUri: `http://${oauthRedirectHost}:${oauthRedirectPort}`,
       oauthScope: process.env.GOOGLE_OAUTH_SCOPE || DEFAULT_GOOGLE_SCOPE,
+      oauthTimeoutSeconds: getPositiveNumber('GOOGLE_OAUTH_TIMEOUT_SECONDS', 300),
     },
     whatsapp: {
       clientId: process.env.WHATSAPP_CLIENT_ID || undefined,

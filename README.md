@@ -60,6 +60,9 @@ GOOGLE_DRIVE_FOLDER_ID=
 BOT_TIME_ZONE=America/Argentina/Buenos_Aires
 GOOGLE_CREDENTIALS_PATH=credentials.json
 GOOGLE_TOKEN_PATH=token.json
+GOOGLE_OAUTH_REDIRECT_HOST=127.0.0.1
+GOOGLE_OAUTH_REDIRECT_PORT=53682
+GOOGLE_OAUTH_TIMEOUT_SECONDS=300
 WHATSAPP_AUTH_DATA_PATH=.wwebjs_auth
 WHATSAPP_GROUPS_CONFIG_PATH=config.json
 PUPPETEER_EXECUTABLE_PATH=
@@ -136,6 +139,18 @@ npm run auth
 ```
 
 Ese comando levanta un servidor local en el puerto configurado, muestra una URL de Google y guarda `token.json` al finalizar. No ejecutarlo en automatizaciones ni sin autorizacion, porque escribe token local.
+
+El servidor OAuth local escucha por defecto solo en `127.0.0.1` y usa `state` para validar que el callback corresponda a la solicitud iniciada por la terminal. No imprime codigos OAuth, tokens ni query params del callback.
+
+Variables relacionadas:
+
+```env
+GOOGLE_OAUTH_REDIRECT_HOST=127.0.0.1
+GOOGLE_OAUTH_REDIRECT_PORT=53682
+GOOGLE_OAUTH_TIMEOUT_SECONDS=300
+```
+
+La URL de autorizacion que muestra `npm run auth` permite iniciar sesion en Google y no debe compartirse. Si el puerto esta ocupado, cerrar otra instancia de `auth.js` o cambiar `GOOGLE_OAUTH_REDIRECT_PORT` y asegurarse de que la credencial OAuth permita ese redirect local. `token.json` queda local e ignorado por Git.
 
 ## Login WhatsApp
 
