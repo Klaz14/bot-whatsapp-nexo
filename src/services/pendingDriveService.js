@@ -287,6 +287,32 @@ async function listFilesInFolder(drive, folderId) {
   return files;
 }
 
+async function listPendingDayFolders(drive, rootFolderId) {
+  const folders = [];
+  let pageToken;
+
+  do {
+    const res = await drive.files.list({
+      q: [
+        `'${escapeDriveQueryString(rootFolderId)}' in parents`,
+        `mimeType = '${DRIVE_FOLDER_MIME}'`,
+        'trashed = false',
+      ].join(' and '),
+      fields: 'nextPageToken, files(id, name, createdTime)',
+      orderBy: 'name',
+      pageSize: 1000,
+      pageToken,
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+    });
+
+    folders.push(...(res.data.files || []));
+    pageToken = res.data.nextPageToken;
+  } while (pageToken);
+
+  return folders;
+}
+
 async function findPendingFileByMessageKey(drive, pendingDayFolderId, messageKey) {
   if (!messageKey) return null;
 
@@ -381,6 +407,7 @@ module.exports = {
   findOrCreatePendingRootFolder,
   isPendingStatusQueued,
   listFilesInFolder,
+  listPendingDayFolders,
   listPendingFilesForDate,
   markPendingStatus,
   parsePendingAppProperties,

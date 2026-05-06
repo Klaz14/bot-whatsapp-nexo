@@ -317,6 +317,31 @@ El procesador revisa solamente la subcarpeta pendiente del dia operativo actual.
 
 Si falla algun paso, el archivo pendiente no se borra, no se marca como procesado final y se actualiza su metadata a `failed` con intentos/error sanitizado. La carpeta diaria pendiente solo se elimina si queda realmente vacia.
 
+### Auditoria de pendientes
+
+Para revisar pendientes sin modificarlos, existe un script read-only:
+
+```bash
+node scripts/auditPendingTransfers.js
+```
+
+Ese comando no toca WhatsApp, no borra, no copia, no mueve y no modifica `appProperties`. Solo consulta Drive con las credenciales locales y muestra un resumen seguro por carpeta:
+
+```text
+[PENDING AUDIT] folder 06-05-2026: 0 queued, 0 processing, 1 failed, 0 uploaded, 0 other
+[PENDING AUDIT] failed pending_1820_BT_abcd1234.jpg attempts=3 operationalDate=2026-05-06 group=BOT_TEST tag=BT error="..."
+```
+
+Si quedan pendientes sin procesar:
+
+1. Confirmar que el bot llego a `Bot listo y escuchando`.
+2. Confirmar que el horario actual cae dentro de `business-calendar.json`.
+3. Confirmar `GOOGLE_DRIVE_PENDING_FOLDER_ID` si se usa una carpeta raiz explicita.
+4. Revisar en consola los eventos `[PENDING PROCESSOR]`, `[PENDING OK]` y `[PENDING ERROR]`.
+5. Si un archivo queda `failed`, dejarlo en pendientes para que el scheduler lo reintente hasta `PENDING_PROCESSOR_MAX_ATTEMPTS`.
+6. Si agoto intentos, revisar el `lastError` sanitizado y permisos de Drive antes de tocar archivos manualmente.
+7. No borrar pendientes manualmente salvo que haya backup/verificacion de que ya estan en `Entrantes`.
+
 Para bloquear procesamiento sin cambiar codigo:
 
 ```env

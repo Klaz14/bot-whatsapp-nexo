@@ -55,6 +55,10 @@ Este proyecto es un bot Node.js standalone que escucha grupos permitidos de What
 - El processor de pendientes debe correr solo dentro de horario operativo, despues de `ready`, sin bloquear ni alterar la inicializacion de WhatsApp.
 - El processor debe copiar a `Entrantes` y confirmar exito antes de marcar `processed`, marcar `uploaded` o borrar el pendiente.
 - Si falla el procesamiento de un pendiente, conservar el archivo y marcar estado `failed` con error sanitizado.
+- Las auditorias de pendientes deben ser read-only salvo fase explicita; no borrar, mover, copiar ni cambiar `appProperties`.
+- No imprimir IDs completos de Drive, links, telefonos, LID ni payloads al auditar pendientes.
+- No modificar metadata de pendientes manualmente sin instruccion explicita.
+- No tocar `ready`, `whatsappClient.js` ni arranque de WhatsApp para tareas de auditoria de pendientes.
 - No versionar `blocked-senders.json`; mantener solo `blocked-senders.example.json` como ejemplo versionado.
 - No loguear telefonos completos al aplicar blacklist de remitentes.
 - `BLACKLIST_DEBUG_FULL_SENDER` es solo para diagnostico local temporal; no tratarlo como operacion normal ni copiar salidas con numeros completos o LID reales a reportes o commits.
