@@ -10,6 +10,10 @@ Este proyecto es un bot Node.js standalone que escucha grupos permitidos de What
 - No cambiar proveedor de WhatsApp sin una fase aprobada.
 - No ejecutar `npm start` ni `npm run auth` salvo instruccion explicita del usuario.
 - No hacer deploy desde este repositorio.
+- Mantener `DEPLOYMENT.md` actualizado cuando cambien deploy, supervisor, persistencia, backups, restore o runbooks operativos.
+- El deploy operativo aprobado para esta base es single-instance; no configurar cluster, multiples workers ni escala horizontal sin fase explicita.
+- No borrar, mover ni regenerar archivos persistentes de produccion sin backup y autorizacion explicita.
+- No tocar sesiones WhatsApp, tokens OAuth, stores locales ni calendarios reales durante tareas de codigo.
 - No enviar mensajes reales ni activar pruebas contra servicios reales sin aprobacion.
 - No mostrar valores reales de tokens, credenciales, numeros telefonicos, links completos de Drive ni datos personales.
 - Actualizar `README.md`, `.env.example` y este archivo cuando cambien flujos, variables de entorno, comandos o deploy.
@@ -72,6 +76,7 @@ Este proyecto es un bot Node.js standalone que escucha grupos permitidos de What
 - `BLACKLIST_DEBUG_FULL_SENDER` es solo para diagnostico local temporal; no tratarlo como operacion normal ni copiar salidas con numeros completos o LID reales a reportes o commits.
 - Las reglas funcionales como blacklist no deben tocar `src/index.js`, `src/services/whatsappClient.js`, `src/config/env.js`, Puppeteer, cache/version de WhatsApp Web, `LocalAuth` ni flujo de inicializacion.
 - Cualquier cambio en arranque/conexion de WhatsApp requiere una fase especifica y prueba manual autorizada de `npm start`.
+- Las tareas de deploy/runbook son documentales salvo instruccion explicita; no deben ejecutar servicios reales, auth, WhatsApp ni Drive.
 
 ## Archivos y carpetas sensibles
 

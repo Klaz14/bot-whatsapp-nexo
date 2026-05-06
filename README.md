@@ -562,6 +562,18 @@ No ejecutar `npm start` ni `npm run auth` salvo instruccion explicita.
 - Si Puppeteer informa `Could not find Chrome`, ejecutar `npm run setup:chrome` o configurar `PUPPETEER_EXECUTABLE_PATH`.
 - Si queda en `Autenticado` y no llega a `Bot listo y escuchando`, observar los eventos `WhatsApp loading`, `WhatsApp state changed` y la advertencia de `WHATSAPP_READY_TIMEOUT_SECONDS`. No borrar `.wwebjs_auth/` ni `.wwebjs_cache/` como primera medida.
 
+## Deploy y operacion
+
+El deploy actual debe hacerse como single-instance. No usar cluster, multiples workers ni dos servicios apuntando al mismo directorio/sesion.
+
+El runbook formal esta en:
+
+```text
+DEPLOYMENT.md
+```
+
+Ese documento cubre persistencia, supervisor, backups, restore, checklist pre-deploy, checklist de recuperacion y la investigacion futura sobre numeros de WhatsApp de reserva.
+
 ## Limitaciones
 
 - `whatsapp-web.js` depende de WhatsApp Web y puede romperse ante cambios externos.
