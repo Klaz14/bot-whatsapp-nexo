@@ -3,12 +3,14 @@ const { Readable } = require('stream');
 const { google } = require('googleapis');
 const { maskSensitiveText } = require('../utils/mask');
 const { sanitizeDriveFolderName } = require('../utils/sanitize');
+const { buildSequentialUploadFilename } = require('../utils/fileNames');
 const {
   formatLocalDayForDriveFolder,
   formatLocalMonthForDriveFolder,
 } = require('../utils/time');
 
 const DRIVE_FOLDER_MIME = 'application/vnd.google-apps.folder';
+const SEQUENTIAL_UPLOAD_FILENAME_RE = /^(\d+)_([01]\d|2[0-3])([0-5]\d)_[A-Za-z0-9][A-Za-z0-9_-]*\.[A-Za-z0-9]+$/;
 
 function assertDriveConfig(config) {
   if (!config.google.driveFolderId || config.google.driveFolderId === 'YYY') {
@@ -43,6 +45,23 @@ function buildDriveFolderPath(groupName, date, timeZone) {
   };
 }
 
+function extractSequentialIdFromName(name) {
+  const match = SEQUENTIAL_UPLOAD_FILENAME_RE.exec(String(name || ''));
+  if (!match) return null;
+
+  const id = Number(match[1]);
+  return Number.isSafeInteger(id) && id > 0 ? id : null;
+}
+
+function getNextSequentialUploadId(fileNames) {
+  const maxId = (fileNames || [])
+    .map((name) => extractSequentialIdFromName(name))
+    .filter((id) => id !== null)
+    .reduce((max, id) => Math.max(max, id), 0);
+
+  return maxId + 1;
+}
+
 function createDriveService(config) {
   assertDriveConfig(config);
 
@@ -70,6 +89,7 @@ function createDriveService(config) {
 
   const drive = google.drive({ version: 'v3', auth: oauth2 });
   const folderCache = new Map();
+  const folderLocks = new Map();
 
   function cacheKey(parentId, folderName) {
     return `${parentId}\0${folderName}`;
@@ -141,6 +161,80 @@ function createDriveService(config) {
     };
   }
 
+  function withFolderLock(folderId, task) {
+    const previous = folderLocks.get(folderId) || Promise.resolve();
+    const run = previous.catch(() => undefined).then(task);
+    const cleanup = run.finally(() => {
+      if (folderLocks.get(folderId) === cleanup) {
+        folderLocks.delete(folderId);
+      }
+    });
+    folderLocks.set(folderId, cleanup);
+    return run;
+  }
+
+  async function listFileNamesInFolder(parentId) {
+    const escapedParentId = escapeDriveQueryString(parentId);
+    const fileNames = [];
+    let pageToken;
+
+    do {
+      const res = await drive.files.list({
+        q: [
+          `'${escapedParentId}' in parents`,
+          `mimeType != '${DRIVE_FOLDER_MIME}'`,
+          'trashed = false',
+        ].join(' and '),
+        fields: 'nextPageToken, files(name)',
+        pageSize: 1000,
+        pageToken,
+        supportsAllDrives: true,
+        includeItemsFromAllDrives: true,
+      });
+
+      for (const file of res.data.files || []) {
+        if (file && file.name) fileNames.push(file.name);
+      }
+      pageToken = res.data.nextPageToken;
+    } while (pageToken);
+
+    return fileNames;
+  }
+
+  async function buildFilenameForUploadFolder(uploadFolder, mime, options) {
+    if (!options.sequentialFilename) {
+      return {
+        filename: options.filename,
+      };
+    }
+
+    if (config.dryRun || !config.safety.allowRealDriveUploads) {
+      return {
+        filename: buildSequentialUploadFilename({
+          id: 1,
+          date: options.date,
+          tag: options.tag,
+          media: options.media || { mimetype: mime, filename: options.originalFilename },
+          timeZone: config.timeZone,
+        }),
+        sequenceId: 1,
+      };
+    }
+
+    const existingNames = await listFileNamesInFolder(uploadFolder.id);
+    const sequenceId = getNextSequentialUploadId(existingNames);
+    return {
+      filename: buildSequentialUploadFilename({
+        id: sequenceId,
+        date: options.date,
+        tag: options.tag,
+        media: options.media || { mimetype: mime, filename: options.originalFilename },
+        timeZone: config.timeZone,
+      }),
+      sequenceId,
+    };
+  }
+
   async function uploadWithRetry(filename, mime, buffer, options = {}, attempts = 3) {
     if (typeof options === 'number') {
       attempts = options;
@@ -149,11 +243,17 @@ function createDriveService(config) {
 
     if (config.dryRun || !config.safety.allowRealDriveUploads) {
       const folderPath = buildDriveFolderPath(options.groupName, options.date || new Date(), config.timeZone);
+      const filenameInfo = await buildFilenameForUploadFolder({ id: config.google.driveFolderId }, mime, {
+        ...options,
+        filename,
+      });
       console.warn('[upload] subida a Drive bloqueada por configuracion de seguridad.');
       return {
         id: 'dry-run',
         webViewLink: '',
         folderPath: folderPath.logicalPath,
+        filename: filenameInfo.filename,
+        sequenceId: filenameInfo.sequenceId,
       };
     }
 
@@ -161,20 +261,32 @@ function createDriveService(config) {
     for (let i = 1; i <= attempts; i++) {
       try {
         const uploadFolder = await resolveUploadFolder(options);
-        const res = await drive.files.create({
-          requestBody: {
-            name: filename,
-            parents: [uploadFolder.id],
-          },
-          media: {
-            mimeType: mime,
-            body: Readable.from(buffer),
-          },
-          fields: 'id, webViewLink',
-          supportsAllDrives: true,
+        const result = await withFolderLock(uploadFolder.id, async () => {
+          const filenameInfo = await buildFilenameForUploadFolder(uploadFolder, mime, {
+            ...options,
+            filename,
+          });
+          const res = await drive.files.create({
+            requestBody: {
+              name: filenameInfo.filename,
+              parents: [uploadFolder.id],
+            },
+            media: {
+              mimeType: mime,
+              body: Readable.from(buffer),
+            },
+            fields: 'id, webViewLink',
+            supportsAllDrives: true,
+          });
+
+          return {
+            ...res.data,
+            filename: filenameInfo.filename,
+            sequenceId: filenameInfo.sequenceId,
+          };
         });
         return {
-          ...res.data,
+          ...result,
           folderPath: uploadFolder.logicalPath,
         };
       } catch (err) {
@@ -199,4 +311,6 @@ module.exports = {
   buildDriveFolderPath,
   createDriveService,
   escapeDriveQueryString,
+  extractSequentialIdFromName,
+  getNextSequentialUploadId,
 };

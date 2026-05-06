@@ -211,10 +211,26 @@ Entrantes/<NombreGrupoSanitizado>/<MM-YYYY>/<DD>/archivo
 Ejemplo:
 
 ```text
-Entrantes/BOT_TEST/05-2026/05/BT_2026-05-05_13-40-22_sender_6110.jpg
+Entrantes/BOT_TEST/05-2026/05/1_2243_BT.jpg
 ```
 
 El nombre de carpeta del grupo se basa en el nombre real del grupo de WhatsApp sanitizado, no en el tag. Las carpetas de mes y dia usan fecha local operativa segun `BOT_TIME_ZONE`, por defecto `America/Argentina/Buenos_Aires`. El bot busca carpetas existentes antes de crear nuevas y mantiene una cache en memoria mientras el proceso corre.
+
+Dentro de cada carpeta diaria, los archivos se nombran con:
+
+```text
+<ID>_<HHmm>_<TAG>.<ext>
+```
+
+Ejemplos:
+
+```text
+1_2243_BT.jpg
+2_2248_BT.pdf
+3_2252_BT.jpg
+```
+
+El `ID` es incremental por carpeta diaria y vuelve a empezar en `1` cada dia. Para calcularlo, el bot lista los archivos existentes en la carpeta diaria y toma en cuenta solo nombres que cumplen el formato completo `<ID>_<HHmm>_<TAG>.<ext>`, con hora valida. Archivos manuales como `99_manual.pdf`, `152_comprobante.jpg` o `1_factura_cliente.pdf` se ignoran para evitar saltos artificiales en la secuencia. Si se sube manualmente un archivo con el formato exacto del bot, entonces si puede ocupar un ID valido. La hora `HHmm` sale del timestamp del mensaje de WhatsApp convertido con `BOT_TIME_ZONE`. El `TAG` sale del valor configurado para el grupo en `config.json.groups`. El filename no incluye telefonos, LID ni remitentes.
 
 Para bloquear procesamiento sin cambiar codigo:
 
@@ -294,7 +310,7 @@ El bot mantiene compatibilidad con:
 Los logs historicos no se migran ni se borran automaticamente. Desde la Fase 2, los nuevos registros aplican masking y sanitizacion basica:
 
 - Los telefonos/remitentes no se guardan completos.
-- Los nombres de archivo usan una referencia parcial del remitente, no el telefono completo.
+- Los nombres de archivo no incluyen telefonos, LID ni remitentes.
 - Los links completos de Drive no se guardan por defecto.
 - La ruta logica de Drive puede registrarse como `GrupoSanitizado/MM-YYYY/DD`.
 - Los errores se recortan y se filtran para evitar tokens, URLs largas y datos sensibles obvios.

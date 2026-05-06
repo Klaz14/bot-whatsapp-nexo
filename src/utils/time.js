@@ -57,6 +57,19 @@ function getLocalDateParts(date = new Date(), timeZone = DEFAULT_TIME_ZONE) {
   return Object.fromEntries(parts.map((part) => [part.type, part.value]));
 }
 
+function getLocalTimeParts(date = new Date(), timeZone = DEFAULT_TIME_ZONE) {
+  const safeTimeZone = normalizeTimeZone(timeZone);
+  const safeDate = date instanceof Date && Number.isFinite(date.getTime()) ? date : new Date();
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: safeTimeZone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(safeDate);
+
+  return Object.fromEntries(parts.map((part) => [part.type, part.value]));
+}
+
 function formatLocalMonthForDriveFolder(date = new Date(), timeZone = DEFAULT_TIME_ZONE) {
   const values = getLocalDateParts(date, timeZone);
   return `${values.month}-${values.year}`;
@@ -67,11 +80,17 @@ function formatLocalDayForDriveFolder(date = new Date(), timeZone = DEFAULT_TIME
   return values.day;
 }
 
+function formatLocalTimeForFilename(date = new Date(), timeZone = DEFAULT_TIME_ZONE) {
+  const values = getLocalTimeParts(date, timeZone);
+  return `${values.hour}${values.minute}`;
+}
+
 module.exports = {
   DEFAULT_TIME_ZONE,
   buildAuditTime,
   formatLocalDayForDriveFolder,
   formatLocalMonthForDriveFolder,
+  formatLocalTimeForFilename,
   normalizeTimeZone,
   toLocalAuditString,
   toUtcISOString,

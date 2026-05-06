@@ -1,5 +1,4 @@
 const { ALLOWED_MIME } = require('../utils/mime');
-const { buildUploadFilename } = require('../utils/fileNames');
 const { maskPhone, maskSensitiveText } = require('../utils/mask');
 const { buildMessageKey } = require('../services/processedStore');
 const {
@@ -94,15 +93,19 @@ function createMessageHandler({ config, driveService, logService, processedStore
         return;
       }
 
-      const filename = buildUploadFilename(tag, senderId, media);
       const buffer = Buffer.from(media.data, 'base64');
       const messageDate = getMessageDate(msg);
+      let filename = '-';
 
       try {
-        const result = await driveService.uploadWithRetry(filename, media.mimetype, buffer, {
+        const result = await driveService.uploadWithRetry(null, media.mimetype, buffer, {
           groupName: chat.name,
           date: messageDate,
+          media,
+          sequentialFilename: true,
+          tag,
         });
+        filename = result.filename || filename;
         const driveRef = logService.uploadEvent({
           timestamp: new Date().toISOString(),
           chatName: chat.name,
