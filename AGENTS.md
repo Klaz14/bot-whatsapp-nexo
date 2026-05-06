@@ -15,6 +15,9 @@ Este proyecto es un bot Node.js standalone que escucha grupos permitidos de What
 - En Railway, usar Dockerfile + un solo servicio long-running + Railway Volume montado en `/data`; no guardar estado operativo fuera de `/data`.
 - No subir secretos, sesiones, tokens, configs reales ni backups al Docker build context; mantenerlos fuera de Git y fuera de la imagen.
 - Para Railway, mantener rutas persistentes por variables (`/data/...`) y verificar estructura con scripts read-only antes de arrancar operacion real.
+- Si el plan Railway no tiene backups automaticos de volumen, cualquier cambio de deploy debe recordar backup externo manual previo.
+- Nunca sugerir `Wipe Volume`, `Delete Volume` ni recrear `/data` como solucion rapida.
+- Nunca versionar ni adjuntar dumps, tarballs o zips de `/data`.
 - No borrar, mover ni regenerar archivos persistentes de produccion sin backup y autorizacion explicita.
 - No tocar sesiones WhatsApp, tokens OAuth, stores locales ni calendarios reales durante tareas de codigo.
 - No enviar mensajes reales ni activar pruebas contra servicios reales sin aprobacion.

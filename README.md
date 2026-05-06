@@ -591,7 +591,7 @@ El runbook formal esta en:
 DEPLOYMENT.md
 ```
 
-Ese documento cubre persistencia, supervisor, backups, restore, checklist pre-deploy, checklist de recuperacion y la investigacion futura sobre numeros de WhatsApp de reserva.
+Ese documento cubre persistencia, supervisor, deploy Railway con volumen `/data`, backups manuales externos, restore, checklist pre-deploy, checklist post-deploy, checklist de recuperacion y la investigacion futura sobre numeros de WhatsApp de reserva.
 
 ## Limitaciones
 

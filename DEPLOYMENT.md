@@ -417,13 +417,19 @@ Si falta `processed-messages.json`, puede dejarse que el bot lo cree en `/data`,
 
 ### Backups Railway
 
-Activar backups del Railway Volume:
+En el plan actual de Railway no estan disponibles los backups automaticos del volumen. Por eso, el backup externo manual es obligatorio mientras no se cambie de plan o no se habilite otra estrategia equivalente.
 
-- manual antes de deploys importantes;
-- diario para retencion corta;
-- semanal/mensual si el plan lo permite.
+No usar `Wipe Volume`, `Delete Volume` ni recrear el volumen como solucion rapida. Esas acciones pueden perder sesion WhatsApp, OAuth, configuracion local, blacklist, store de idempotencia y logs.
 
-Ademas, mantener backup externo propio de `.wwebjs_auth/`, `token.json`, `credentials.json`, configuracion local, calendario, blacklist, `processed-messages.json` y logs. Tratar esos backups como material sensible.
+Mantener backup externo propio de `.wwebjs_auth/`, `token.json`, `credentials.json`, configuracion local, calendario, blacklist, `processed-messages.json` y logs. Tratar esos backups como material sensible.
+
+Frecuencia minima mientras no haya backups automaticos:
+
+- despues del primer deploy funcional;
+- antes de cambios grandes de deploy o variables;
+- despues de regenerar `token.json`;
+- despues de revincular WhatsApp o restaurar `.wwebjs_auth/`;
+- semanalmente como rutina operativa.
 
 Riesgos especificos Railway:
 
@@ -433,6 +439,113 @@ Riesgos especificos Railway:
 - debugging de QR/`ready` es mas incomodo que local;
 - un restore de volumen puede redeployar el servicio;
 - si se crea mas de una replica puede haber duplicados, locks inutiles entre instancias y conflictos con LocalAuth.
+
+## Estado Post-Deploy Railway
+
+Estado operativo confirmado:
+
+- proyecto Railway creado;
+- servicio Railway: `bot-whatsapp-nexo`;
+- deploy con `Dockerfile` detectado y funcionando;
+- Railway Volume montado en `/data`;
+- variables Railway cargadas apuntando a `/data`;
+- archivos sensibles y persistentes cargados en `/data`;
+- el bot llego a `ready` en Railway;
+- WhatsApp autentico usando `/data/.wwebjs_auth`;
+- grupo `BOT TEST` detectado;
+- notificacion operativa recibida en el grupo de alertas;
+- upload normal probado y subido a Drive;
+- blacklist probada y funcionando;
+- `node scripts/checkRailwayData.js` reporto `missing=0 typeMismatch=0`;
+- `node scripts/auditPendingTransfers.js` encontro la raiz de pendientes y no habia carpetas pendientes;
+- archivos temporales locales de deploy fueron limpiados/movidos;
+- backups automaticos de Railway no disponibles en el plan actual.
+
+El repo no debe contener secretos ni archivos ignorados por Git. El estado operativo real vive en `/data`.
+
+Archivos criticos esperados en `/data`:
+
+```text
+/data/.wwebjs_auth/
+/data/.wwebjs_cache/
+/data/credentials.json
+/data/token.json
+/data/config.json
+/data/business-calendar.json
+/data/blocked-senders.json
+/data/processed-messages.json
+/data/logs/
+```
+
+### Checklist Post-Deploy Railway
+
+- [ ] Railway service `Online`/`Active`.
+- [ ] Logs muestran `Bot listo y escuchando`.
+- [ ] Logs muestran sesion guardada en `/data/.wwebjs_auth`.
+- [ ] Grupos configurados detectados.
+- [ ] Notificacion operativa recibida.
+- [ ] Upload normal probado.
+- [ ] Blacklist probada.
+- [ ] `node scripts/checkRailwayData.js` OK con `missing=0 typeMismatch=0`.
+- [ ] `node scripts/auditPendingTransfers.js` OK.
+- [ ] No hay mas de una replica activa.
+- [ ] Backup externo manual creado despues del primer deploy funcional.
+
+### Backup Manual Externo de `/data`
+
+Respaldar desde `/data`:
+
+```text
+/data/.wwebjs_auth/
+/data/credentials.json
+/data/token.json
+/data/config.json
+/data/business-calendar.json
+/data/blocked-senders.json
+/data/processed-messages.json
+/data/logs/
+```
+
+Comando conceptual dentro del entorno Railway, si el metodo operativo disponible permite shell seguro:
+
+```bash
+tar -czf /tmp/bot-data-backup.tar.gz -C /data .
+```
+
+Luego descargar `bot-data-backup.tar.gz` al equipo local por el metodo seguro disponible. No imprimir contenidos, no subir el `.tar.gz` a GitHub, no compartirlo por chat y guardarlo en una ubicacion protegida.
+
+Despues de descargar y verificar el backup externo, eliminar el archivo temporal del contenedor:
+
+```bash
+rm -f /tmp/bot-data-backup.tar.gz
+```
+
+Si se usa otro metodo de copia/backup, mantener los mismos principios: no imprimir secretos, no versionar dumps y no dejar copias temporales expuestas.
+
+### Restore Manual Railway
+
+Procedimiento conceptual:
+
+1. Detener el servicio o cambiar temporalmente el start command a un proceso inerte, por ejemplo `sleep infinity`, para evitar que el bot use `/data` durante el restore.
+2. Restaurar los archivos/directorios respaldados dentro de `/data`.
+3. Verificar estructura sin imprimir secretos:
+
+```bash
+node scripts/checkRailwayData.js
+```
+
+4. Volver al start normal del servicio.
+5. Hacer redeploy/restart controlado.
+6. Confirmar `Bot listo y escuchando`.
+7. Confirmar notificacion operativa.
+8. Probar Drive con un comprobante controlado.
+9. Ejecutar auditoria read-only de pendientes:
+
+```bash
+node scripts/auditPendingTransfers.js
+```
+
+No borrar `/data`, no recrear volumen y no restaurar backups viejos sin confirmar impacto sobre `processed-messages.json` y pendientes.
 
 ## Backups
 
