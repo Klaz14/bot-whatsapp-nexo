@@ -50,6 +50,8 @@ Este proyecto es un bot Node.js standalone que escucha grupos permitidos de What
 - La metadata de pendientes en Drive debe usar `appProperties` seguras; no guardar telefonos completos, LID completos, links ni payloads.
 - No borrar archivos pendientes ni carpetas de pendientes hasta confirmar la subida final a `Entrantes`.
 - Implementar cola de pendientes de Drive por fases; no activar encolado/procesamiento desde WhatsApp en una fase de helpers.
+- El encolado fuera de horario puede descargar y subir a pendientes, pero no debe subir a `Entrantes` ni marcar `processed` final.
+- No implementar processor automatico de pendientes en la misma fase que activa el encolado, salvo instruccion explicita.
 - No versionar `blocked-senders.json`; mantener solo `blocked-senders.example.json` como ejemplo versionado.
 - No loguear telefonos completos al aplicar blacklist de remitentes.
 - `BLACKLIST_DEBUG_FULL_SENDER` es solo para diagnostico local temporal; no tratarlo como operacion normal ni copiar salidas con numeros completos o LID reales a reportes o commits.

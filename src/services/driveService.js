@@ -8,6 +8,15 @@ const {
   formatLocalDayForDriveFolder,
   formatLocalMonthForDriveFolder,
 } = require('../utils/time');
+const {
+  DEFAULT_PENDING_ROOT_NAME,
+  buildPendingFileName,
+  buildPendingFolderName,
+  createPendingFile,
+  findOrCreatePendingDayFolder,
+  findOrCreatePendingRootFolder,
+  findPendingFileByMessageKeyGlobal,
+} = require('./pendingDriveService');
 
 const DRIVE_FOLDER_MIME = 'application/vnd.google-apps.folder';
 const SEQUENTIAL_UPLOAD_FILENAME_RE = /^(\d+)_([01]\d|2[0-3])([0-5]\d)_[A-Za-z0-9][A-Za-z0-9_-]*\.[A-Za-z0-9]+$/;
@@ -301,8 +310,80 @@ function createDriveService(config) {
     throw lastErr;
   }
 
+  async function resolvePendingDayFolder(operationalDate) {
+    const date = operationalDate instanceof Date ? operationalDate : new Date();
+    const folderName = buildPendingFolderName(date, config.timeZone);
+
+    if (config.dryRun || !config.safety.allowRealDriveUploads) {
+      return {
+        id: config.google.pendingFolderId || config.google.driveFolderId,
+        name: folderName,
+        folderPath: `${DEFAULT_PENDING_ROOT_NAME}/${folderName}`,
+      };
+    }
+
+    const rootFolder = await findOrCreatePendingRootFolder(drive, {
+      pendingFolderId: config.google.pendingFolderId,
+      parentFolderId: config.google.driveFolderId,
+      pendingRootName: DEFAULT_PENDING_ROOT_NAME,
+    });
+    const dayFolder = await findOrCreatePendingDayFolder(drive, rootFolder.id, date, config.timeZone);
+
+    return {
+      id: dayFolder.id,
+      name: dayFolder.name || folderName,
+      folderPath: `${rootFolder.name || DEFAULT_PENDING_ROOT_NAME}/${dayFolder.name || folderName}`,
+    };
+  }
+
+  async function findPendingByMessageKey(messageKey) {
+    if (!messageKey) return null;
+
+    if (config.dryRun || !config.safety.allowRealDriveUploads) return null;
+
+    const file = await findPendingFileByMessageKeyGlobal(drive, messageKey);
+    return file ? {
+      ...file,
+      folderPath: DEFAULT_PENDING_ROOT_NAME,
+    } : null;
+  }
+
+  async function createPendingUpload(options = {}) {
+    const pendingDayFolder = await resolvePendingDayFolder(options.operationalDate);
+
+    if (config.dryRun || !config.safety.allowRealDriveUploads) {
+      return {
+        id: 'dry-run-pending',
+        name: options.filename || buildPendingFileName({
+          messageKey: options.metadata && options.metadata.messageKey,
+          tag: options.metadata && options.metadata.tag,
+          messageDate: options.messageDate,
+          mimeType: options.mimeType,
+          originalFilename: options.originalFilename,
+          timeZone: config.timeZone,
+        }),
+        appProperties: options.metadata || {},
+        folderPath: pendingDayFolder.folderPath,
+      };
+    }
+
+    const file = await createPendingFile(drive, {
+      ...options,
+      pendingDayFolderId: pendingDayFolder.id,
+      timeZone: config.timeZone,
+    });
+
+    return {
+      ...file,
+      folderPath: pendingDayFolder.folderPath,
+    };
+  }
+
   return {
+    createPendingUpload,
+    findPendingByMessageKey,
     resolveUploadFolder,
+    resolvePendingDayFolder,
     uploadWithRetry,
   };
 }

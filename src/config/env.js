@@ -161,6 +161,7 @@ function loadConfig() {
       uploadsLog: resolveProjectPath(process.env.LOG_UPLOADS_PATH, 'uploads.log'),
       errorsLog: resolveProjectPath(process.env.LOG_ERRORS_PATH, 'errors.log'),
       processedStore: resolveProjectPath(process.env.PROCESSED_STORE_PATH, 'processed-messages.json'),
+      businessCalendar: resolveProjectPath(process.env.BUSINESS_CALENDAR_PATH, 'business-calendar.json'),
     },
     processedStore: {
       ttlHours: getPositiveNumber('PROCESSED_STORE_TTL_HOURS', 720),
@@ -169,6 +170,7 @@ function loadConfig() {
     },
     google: {
       driveFolderId: process.env.GOOGLE_DRIVE_FOLDER_ID || fileConfig.driveFolderId,
+      pendingFolderId: process.env.GOOGLE_DRIVE_PENDING_FOLDER_ID || undefined,
       oauthRedirectHost,
       oauthRedirectPort,
       oauthRedirectUri: `http://${oauthRedirectHost}:${oauthRedirectPort}`,

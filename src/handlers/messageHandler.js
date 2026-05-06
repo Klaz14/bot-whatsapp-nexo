@@ -1,6 +1,13 @@
 const { ALLOWED_MIME } = require('../utils/mime');
 const { maskPhone, maskSensitiveText } = require('../utils/mask');
+const { sanitizeDriveFolderName } = require('../utils/sanitize');
 const { buildMessageKey } = require('../services/processedStore');
+const {
+  getBusinessDateString,
+  getOperationalDateForMessage,
+  isWithinBusinessHours,
+  loadBusinessCalendar,
+} = require('../utils/businessCalendar');
 const {
   getDefaultBlockedSendersPath,
   getPhoneSuffix,
@@ -29,6 +36,10 @@ function formatBlacklistSender(value) {
 function formatRawBlacklistDebugValue(value) {
   if (value === undefined || value === null || value === '') return 'missing';
   return String(value).replace(/\s+/g, ' ');
+}
+
+function getBusinessCalendar(config) {
+  return loadBusinessCalendar(config.paths && config.paths.businessCalendar);
 }
 
 function createMessageHandler({ config, driveService, logService, processedStore }) {
@@ -82,6 +93,19 @@ function createMessageHandler({ config, driveService, logService, processedStore
         return;
       }
 
+      const messageDate = getMessageDate(msg);
+      const businessCalendar = getBusinessCalendar(config);
+      const processNow = isWithinBusinessHours(messageDate, businessCalendar);
+      const operationalDate = getOperationalDateForMessage(messageDate, businessCalendar);
+
+      if (!processNow && messageKey) {
+        const existingPending = await driveService.findPendingByMessageKey(messageKey);
+        if (existingPending) {
+          console.log(`[PENDING] duplicate ignored -> ${existingPending.folderPath}/${existingPending.name}`);
+          return;
+        }
+      }
+
       const media = await msg.downloadMedia();
       if (!media || !media.data) {
         console.warn(`[${chat.name}] mensaje con media pero sin data, salteando`);
@@ -94,7 +118,44 @@ function createMessageHandler({ config, driveService, logService, processedStore
       }
 
       const buffer = Buffer.from(media.data, 'base64');
-      const messageDate = getMessageDate(msg);
+      if (!processNow) {
+        const operationalDateText = getBusinessDateString(operationalDate, businessCalendar);
+        try {
+          const result = await driveService.createPendingUpload({
+            buffer,
+            mimeType: media.mimetype,
+            originalFilename: media.filename,
+            messageDate,
+            operationalDate,
+            metadata: {
+              messageKey,
+              pendingStatus: 'queued',
+              groupName: chat.name,
+              groupFolderName: sanitizeDriveFolderName(chat.name, 'grupo', 80),
+              tag,
+              mimeType: media.mimetype,
+              originalMessageDate: messageDate,
+              operationalDate: operationalDateText,
+              queuedAt: new Date().toISOString(),
+              attempts: 0,
+            },
+          });
+          console.log(`[PENDING] ${maskSensitiveText(chat.name, 80)} -> ${result.folderPath}/${result.name}`);
+        } catch (err) {
+          logService.errorEvent({
+            timestamp: new Date().toISOString(),
+            chatName: chat.name,
+            tag,
+            filename: 'pending',
+            senderId,
+            drivePath: err && err.folderPath,
+            error: err,
+          });
+          console.error(`[ERROR] no se pudo encolar pendiente: ${maskSensitiveText(err && err.message)}`);
+        }
+        return;
+      }
+
       let filename = '-';
 
       try {

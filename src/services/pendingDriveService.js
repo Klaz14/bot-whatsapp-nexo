@@ -245,6 +245,47 @@ async function listPendingFilesForDate(drive, pendingDayFolderId) {
   return files;
 }
 
+async function findPendingFileByMessageKey(drive, pendingDayFolderId, messageKey) {
+  if (!messageKey) return null;
+
+  const res = await drive.files.list({
+    q: [
+      `'${escapeDriveQueryString(pendingDayFolderId)}' in parents`,
+      'trashed = false',
+      `appProperties has { key='app' and value='${APP_NAME}' }`,
+      `appProperties has { key='type' and value='${PENDING_TYPE}' }`,
+      `appProperties has { key='messageKey' and value='${escapeDriveQueryString(messageKey)}' }`,
+    ].join(' and '),
+    fields: 'files(id, name, mimeType, appProperties, createdTime)',
+    orderBy: 'createdTime',
+    pageSize: 10,
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true,
+  });
+
+  return (res.data.files || [])[0] || null;
+}
+
+async function findPendingFileByMessageKeyGlobal(drive, messageKey) {
+  if (!messageKey) return null;
+
+  const res = await drive.files.list({
+    q: [
+      'trashed = false',
+      `appProperties has { key='app' and value='${APP_NAME}' }`,
+      `appProperties has { key='type' and value='${PENDING_TYPE}' }`,
+      `appProperties has { key='messageKey' and value='${escapeDriveQueryString(messageKey)}' }`,
+    ].join(' and '),
+    fields: 'files(id, name, mimeType, appProperties, createdTime)',
+    orderBy: 'createdTime',
+    pageSize: 10,
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true,
+  });
+
+  return (res.data.files || [])[0] || null;
+}
+
 async function markPendingStatus(drive, fileId, status, patch = {}) {
   const appProperties = buildPendingAppPropertiesPatch({
     ...patch,
@@ -282,6 +323,8 @@ module.exports = {
   buildPendingFolderName,
   createPendingFile,
   deletePendingFile,
+  findPendingFileByMessageKey,
+  findPendingFileByMessageKeyGlobal,
   findOrCreatePendingDayFolder,
   findOrCreatePendingRootFolder,
   isPendingStatusQueued,

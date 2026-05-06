@@ -235,7 +235,7 @@ El `ID` es incremental por carpeta diaria y vuelve a empezar en `1` cada dia. Pa
 
 ## Calendario laboral
 
-La base de horario operativo se define con un calendario local editable. Esta fase solo agrega helpers puros y archivos de configuracion de ejemplo; todavia no activa cola de pendientes, no cambia el flujo actual del bot y no modifica Drive.
+El horario operativo se define con un calendario local editable. Fuera de horario, el bot descarga imagenes/PDFs permitidos y los encola en Drive como pendientes; dentro de horario conserva el flujo normal hacia `Entrantes`.
 
 El archivo real local debe llamarse:
 
@@ -262,19 +262,19 @@ Ese archivo esta ignorado por Git. Usar `business-calendar.example.json` como pl
 
 `businessDays` usa la numeracion de JavaScript: `0` domingo, `1` lunes, `2` martes, `3` miercoles, `4` jueves, `5` viernes y `6` sabado. Por defecto el horario operativo es lunes a viernes de `09:00` a `16:30` en `America/Argentina/Buenos_Aires`.
 
-Los dias no habiles se cargan manualmente en `nonBusinessDates` con formato `YYYY-MM-DD`. Tambien se soporta una lista simple de strings si no hace falta nombre descriptivo. El horario de inicio es inclusivo y `16:30` tambien se considera dentro de horario; despues de `16:30`, sabados, domingos y dias no habiles pasan al proximo dia habil.
+Los dias no habiles se cargan manualmente en `nonBusinessDates` con formato `YYYY-MM-DD`. Tambien se soporta una lista simple de strings si no hace falta nombre descriptivo. El horario de inicio es inclusivo y `16:30` tambien se considera dentro de horario; despues de `16:30`, antes de `09:00`, sabados, domingos y dias no habiles se encolan para la fecha operativa correspondiente.
 
 ## Pendientes fuera de horario
 
-La base para almacenar comprobantes fuera de horario en Drive esta preparada como infraestructura reutilizable, pero esta fase no activa encolado desde WhatsApp ni cambia el flujo actual. Los mensajes dentro del horario operativo siguen procesandose como antes.
+Los comprobantes recibidos fuera de horario se guardan temporalmente en Drive como pendientes. Los mensajes dentro del horario operativo siguen procesandose como antes.
 
-La carpeta raiz futura de pendientes se podra configurar con:
+La carpeta raiz de pendientes se puede configurar con:
 
 ```env
 GOOGLE_DRIVE_PENDING_FOLDER_ID=
 ```
 
-Si esa variable no esta definida, una fase posterior podra buscar o crear una carpeta llamada:
+Si esa variable no esta definida, el bot busca o crea una carpeta llamada:
 
 ```text
 Archivos Pendientes por Fuera de Horario
@@ -286,7 +286,7 @@ Dentro de esa carpeta, los pendientes se separan por fecha operativa con formato
 Archivos Pendientes por Fuera de Horario/06-05-2026/
 ```
 
-Cada archivo pendiente usara un nombre temporal seguro, no final:
+Cada archivo pendiente usa un nombre temporal seguro, no final:
 
 ```text
 pending_<HHmm>_<TAG>_<messageKeyShort>.<ext>
@@ -298,7 +298,7 @@ Ejemplo:
 pending_1820_BT_a1b2c3d4.jpg
 ```
 
-La metadata esencial se prepara para guardarse en `appProperties` de Google Drive: `messageKey` hasheado, estado del pendiente, grupo sanitizado, tag, MIME, hora original UTC/local, fecha operativa, fecha de encolado, intentos y ultimo error sanitizado. No debe incluir telefonos completos, LID completos, links completos de Drive, tokens ni payloads de chat.
+La metadata esencial se guarda en `appProperties` de Google Drive: `messageKey` hasheado, estado del pendiente, grupo sanitizado, tag, MIME, hora original UTC/local, fecha operativa, fecha de encolado, intentos y ultimo error sanitizado. No debe incluir telefonos completos, LID completos, links completos de Drive, tokens ni payloads de chat.
 
 Estados previstos:
 
@@ -309,7 +309,7 @@ uploaded
 failed
 ```
 
-Las fases futuras deben copiar o mover pendientes a `Entrantes/<Grupo>/<MM-YYYY>/<DD>/` y solo borrar el pendiente cuando la subida final este confirmada. No se debe marcar el mensaje como procesado final hasta que el archivo quede en `Entrantes`.
+Esta fase no procesa pendientes automaticamente. Una fase futura debe copiar o mover pendientes a `Entrantes/<Grupo>/<MM-YYYY>/<DD>/` y solo borrar el pendiente cuando la subida final este confirmada. El bot no marca el mensaje como procesado final al encolarlo; queda pendiente hasta que una fase posterior lo deje en `Entrantes`.
 
 Para bloquear procesamiento sin cambiar codigo:
 

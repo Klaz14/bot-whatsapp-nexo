@@ -86,8 +86,12 @@ function loadBusinessCalendar(filePath) {
     return normalizeBusinessCalendar(DEFAULT_BUSINESS_CALENDAR);
   }
 
-  const raw = JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  return normalizeBusinessCalendar(raw);
+  try {
+    const raw = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    return normalizeBusinessCalendar(raw);
+  } catch (err) {
+    return normalizeBusinessCalendar(DEFAULT_BUSINESS_CALENDAR);
+  }
 }
 
 function getSafeDate(date) {
@@ -153,6 +157,11 @@ function isBusinessDay(date, calendar) {
   return normalized.businessDays.includes(weekDay) && !hasNonBusinessDate(localDate, normalized);
 }
 
+function getBusinessDateString(date, calendar) {
+  const normalized = normalizeBusinessCalendar(calendar);
+  return getLocalDateParts(date, normalized.timeZone).ymd;
+}
+
 function isWithinBusinessHours(date, calendar) {
   const normalized = normalizeBusinessCalendar(calendar);
   if (!isBusinessDay(date, normalized)) return false;
@@ -200,6 +209,7 @@ function getPendingTargetDateForMessage(messageDate, calendar) {
 
 module.exports = {
   DEFAULT_BUSINESS_CALENDAR,
+  getBusinessDateString,
   getNextBusinessDate,
   getOperationalDateForMessage,
   getPendingTargetDateForMessage,
