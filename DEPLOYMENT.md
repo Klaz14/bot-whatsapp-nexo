@@ -293,6 +293,147 @@ Requisitos:
 
 Dejar para fase futura. Requiere disenar volumenes persistentes, Chrome, señales, usuario, permisos y backup de sesiones.
 
+## Railway con Dockerfile y Volume `/data`
+
+Railway queda aprobado como objetivo de deploy PaaS controlado siempre que se respete single-instance y todo estado operativo viva en un Railway Volume montado en `/data`.
+
+Layout esperado:
+
+```text
+/app
+  codigo del repo
+
+/data
+  .wwebjs_auth/
+  .wwebjs_cache/
+  credentials.json
+  token.json
+  config.json
+  business-calendar.json
+  blocked-senders.json
+  processed-messages.json
+  logs/
+    uploads.log
+    errors.log
+    alerts.log
+```
+
+Variables Railway recomendadas:
+
+```env
+BOT_ENV=railway
+BOT_TIME_ZONE=America/Argentina/Buenos_Aires
+
+GOOGLE_DRIVE_FOLDER_ID=
+GOOGLE_DRIVE_PENDING_FOLDER_ID=
+GOOGLE_CREDENTIALS_PATH=/data/credentials.json
+GOOGLE_TOKEN_PATH=/data/token.json
+
+WHATSAPP_AUTH_DATA_PATH=/data/.wwebjs_auth
+WHATSAPP_WEB_CACHE_PATH=/data/.wwebjs_cache
+WHATSAPP_GROUPS_CONFIG_PATH=/data/config.json
+WHATSAPP_WEB_VERSION_CACHE_TYPE=none
+WHATSAPP_READY_TIMEOUT_SECONDS=120
+
+BUSINESS_CALENDAR_PATH=/data/business-calendar.json
+BLOCKED_SENDERS_PATH=/data/blocked-senders.json
+PROCESSED_STORE_PATH=/data/processed-messages.json
+LOG_UPLOADS_PATH=/data/logs/uploads.log
+LOG_ERRORS_PATH=/data/logs/errors.log
+ALERTS_LOG_PATH=/data/logs/alerts.log
+
+PENDING_PROCESSOR_INTERVAL_MINUTES=5
+PENDING_PROCESSOR_MAX_ATTEMPTS=3
+
+PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+PUPPETEER_HEADLESS=true
+PUPPETEER_BROWSER_ARGS=[]
+
+WHATSAPP_ALERT_GROUP_NAME=
+WHATSAPP_ALERT_GROUPS_JSON=[]
+OPERATIONAL_NOTIFICATIONS_ENABLED=true
+OPERATIONAL_NOTIFY_ON_READY=true
+OPERATIONAL_NOTIFY_ON_OFF_HOURS=true
+OPERATIONAL_NOTIFY_ON_SHUTDOWN=false
+OPERATIONAL_STATUS_CHECK_INTERVAL_SECONDS=60
+```
+
+No subir secretos a GitHub. Railway variables deben contener solo valores de configuracion; archivos sensibles como `token.json`, `credentials.json`, `config.json`, calendario, blacklist y sesion WhatsApp deben cargarse al volumen `/data`.
+
+### Primer deploy Railway
+
+1. Confirmar `git status --short` limpio.
+2. Confirmar backup local de `.wwebjs_auth/`, `token.json`, `credentials.json`, `.env`, `config.json`, `business-calendar.json`, `blocked-senders.json` y `processed-messages.json`.
+3. Crear proyecto Railway.
+4. Conectar el repo GitHub.
+5. Crear un servicio long-running desde el repo.
+6. Crear un Railway Volume montado en `/data`.
+7. Configurar variables Railway con paths absolutos `/data/...`.
+8. Mantener una sola replica. No activar escala horizontal.
+9. Configurar restart policy segun plan; preferencia operativa: `Always` en plan pago o `On Failure` si no estuviera disponible.
+10. Cargar archivos sensibles al volumen `/data` mediante un metodo seguro autorizado. No imprimir contenidos.
+11. Verificar estructura sin secretos con:
+
+```bash
+node scripts/checkRailwayData.js
+```
+
+12. Deployar con el `Dockerfile` del repo.
+13. Revisar logs de Railway.
+14. Confirmar `Bot listo y escuchando`.
+15. Confirmar notificacion operativa en grupo admin.
+16. Ejecutar prueba manual controlada dentro/fuera de horario.
+17. Activar backups manuales/programados del volumen.
+
+### Carga inicial segura de `/data`
+
+Antes de cargar al volumen, preparar una carpeta local de staging fuera del repo versionable:
+
+```text
+railway-data/
+  .wwebjs_auth/
+  .wwebjs_cache/
+  credentials.json
+  token.json
+  config.json
+  business-calendar.json
+  blocked-senders.json
+  processed-messages.json
+  logs/
+```
+
+Verificar solo existencia, tamanos y fechas. No imprimir tokens, client secrets, numeros, LID ni IDs completos.
+
+Si falta `processed-messages.json`, puede dejarse que el bot lo cree en `/data`, pero esto aumenta riesgo de duplicados historicos si WhatsApp reentrega mensajes. Si existen logs historicos relevantes, copiarlos a `/data/logs/`.
+
+### Actualizacion de codigo en Railway
+
+- Mantener el volumen `/data` sin cambios.
+- Actualizar solo codigo por GitHub/deploy.
+- No cambiar variables de paths salvo fase explicita.
+- Evitar overlap/multiples instancias durante deploy; este bot no esta disenado para dos procesos activos.
+- Confirmar `ready` y notificacion operativa tras cada deploy.
+- Ejecutar auditoria read-only de pendientes si hubo cambios en processor/Drive.
+
+### Backups Railway
+
+Activar backups del Railway Volume:
+
+- manual antes de deploys importantes;
+- diario para retencion corta;
+- semanal/mensual si el plan lo permite.
+
+Ademas, mantener backup externo propio de `.wwebjs_auth/`, `token.json`, `credentials.json`, configuracion local, calendario, blacklist, `processed-messages.json` y logs. Tratar esos backups como material sensible.
+
+Riesgos especificos Railway:
+
+- el volumen existe en runtime, no durante build/pre-deploy;
+- todo archivo fuera de `/data` puede perderse en redeploy;
+- Chrome debe venir dentro de la imagen Docker;
+- debugging de QR/`ready` es mas incomodo que local;
+- un restore de volumen puede redeployar el servicio;
+- si se crea mas de una replica puede haber duplicados, locks inutiles entre instancias y conflictos con LocalAuth.
+
 ## Backups
 
 Respaldar:

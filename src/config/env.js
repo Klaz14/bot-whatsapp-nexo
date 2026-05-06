@@ -198,8 +198,10 @@ function loadConfig() {
       whatsappWebCache: resolveProjectPath(process.env.WHATSAPP_WEB_CACHE_PATH, '.wwebjs_cache'),
       uploadsLog: resolveProjectPath(process.env.LOG_UPLOADS_PATH, 'uploads.log'),
       errorsLog: resolveProjectPath(process.env.LOG_ERRORS_PATH, 'errors.log'),
+      alertsLog: resolveProjectPath(process.env.ALERTS_LOG_PATH, 'alerts.log'),
       processedStore: resolveProjectPath(process.env.PROCESSED_STORE_PATH, 'processed-messages.json'),
       businessCalendar: resolveProjectPath(process.env.BUSINESS_CALENDAR_PATH, 'business-calendar.json'),
+      blockedSenders: resolveProjectPath(process.env.BLOCKED_SENDERS_PATH, 'blocked-senders.json'),
     },
     processedStore: {
       ttlHours: getPositiveNumber('PROCESSED_STORE_TTL_HOURS', 720),

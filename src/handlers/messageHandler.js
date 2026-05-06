@@ -76,7 +76,7 @@ function createMessageHandler({ config, driveService, logService, processedStore
       const authorId = msg.author || '';
       const fromId = msg.from || '';
       const senderId = authorId || fromId || 'unknown';
-      const blockedNumbers = loadBlockedSenders(getDefaultBlockedSendersPath(), {
+      const blockedNumbers = loadBlockedSenders(config.paths.blockedSenders || getDefaultBlockedSendersPath(), {
         onWarning: (warning) => {
           notifySafely(
             operationalNotifier,
