@@ -80,6 +80,11 @@ function formatLocalDayForDriveFolder(date = new Date(), timeZone = DEFAULT_TIME
   return values.day;
 }
 
+function formatLocalDateForPendingFolder(date = new Date(), timeZone = DEFAULT_TIME_ZONE) {
+  const values = getLocalDateParts(date, timeZone);
+  return `${values.day}-${values.month}-${values.year}`;
+}
+
 function formatLocalTimeForFilename(date = new Date(), timeZone = DEFAULT_TIME_ZONE) {
   const values = getLocalTimeParts(date, timeZone);
   return `${values.hour}${values.minute}`;
@@ -88,6 +93,7 @@ function formatLocalTimeForFilename(date = new Date(), timeZone = DEFAULT_TIME_Z
 module.exports = {
   DEFAULT_TIME_ZONE,
   buildAuditTime,
+  formatLocalDateForPendingFolder,
   formatLocalDayForDriveFolder,
   formatLocalMonthForDriveFolder,
   formatLocalTimeForFilename,

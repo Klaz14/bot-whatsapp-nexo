@@ -57,6 +57,7 @@ Variables principales:
 
 ```env
 GOOGLE_DRIVE_FOLDER_ID=
+GOOGLE_DRIVE_PENDING_FOLDER_ID=
 BOT_TIME_ZONE=America/Argentina/Buenos_Aires
 GOOGLE_CREDENTIALS_PATH=credentials.json
 GOOGLE_TOKEN_PATH=token.json
@@ -262,6 +263,53 @@ Ese archivo esta ignorado por Git. Usar `business-calendar.example.json` como pl
 `businessDays` usa la numeracion de JavaScript: `0` domingo, `1` lunes, `2` martes, `3` miercoles, `4` jueves, `5` viernes y `6` sabado. Por defecto el horario operativo es lunes a viernes de `09:00` a `16:30` en `America/Argentina/Buenos_Aires`.
 
 Los dias no habiles se cargan manualmente en `nonBusinessDates` con formato `YYYY-MM-DD`. Tambien se soporta una lista simple de strings si no hace falta nombre descriptivo. El horario de inicio es inclusivo y `16:30` tambien se considera dentro de horario; despues de `16:30`, sabados, domingos y dias no habiles pasan al proximo dia habil.
+
+## Pendientes fuera de horario
+
+La base para almacenar comprobantes fuera de horario en Drive esta preparada como infraestructura reutilizable, pero esta fase no activa encolado desde WhatsApp ni cambia el flujo actual. Los mensajes dentro del horario operativo siguen procesandose como antes.
+
+La carpeta raiz futura de pendientes se podra configurar con:
+
+```env
+GOOGLE_DRIVE_PENDING_FOLDER_ID=
+```
+
+Si esa variable no esta definida, una fase posterior podra buscar o crear una carpeta llamada:
+
+```text
+Archivos Pendientes por Fuera de Horario
+```
+
+Dentro de esa carpeta, los pendientes se separan por fecha operativa con formato `DD-MM-YYYY`, por ejemplo:
+
+```text
+Archivos Pendientes por Fuera de Horario/06-05-2026/
+```
+
+Cada archivo pendiente usara un nombre temporal seguro, no final:
+
+```text
+pending_<HHmm>_<TAG>_<messageKeyShort>.<ext>
+```
+
+Ejemplo:
+
+```text
+pending_1820_BT_a1b2c3d4.jpg
+```
+
+La metadata esencial se prepara para guardarse en `appProperties` de Google Drive: `messageKey` hasheado, estado del pendiente, grupo sanitizado, tag, MIME, hora original UTC/local, fecha operativa, fecha de encolado, intentos y ultimo error sanitizado. No debe incluir telefonos completos, LID completos, links completos de Drive, tokens ni payloads de chat.
+
+Estados previstos:
+
+```text
+queued
+processing
+uploaded
+failed
+```
+
+Las fases futuras deben copiar o mover pendientes a `Entrantes/<Grupo>/<MM-YYYY>/<DD>/` y solo borrar el pendiente cuando la subida final este confirmada. No se debe marcar el mensaje como procesado final hasta que el archivo quede en `Entrantes`.
 
 Para bloquear procesamiento sin cambiar codigo:
 
