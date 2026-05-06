@@ -1,7 +1,15 @@
 const { ALLOWED_MIME } = require('../utils/mime');
 const { buildUploadFilename } = require('../utils/fileNames');
-const { maskSensitiveText } = require('../utils/mask');
+const { maskPhone, maskSensitiveText } = require('../utils/mask');
 const { buildMessageKey } = require('../services/processedStore');
+const {
+  getDefaultBlockedSendersPath,
+  getPhoneSuffix,
+  isFullSenderDebugEnabled,
+  isSenderBlocked,
+  loadBlockedSenders,
+  normalizePhoneNumber,
+} = require('../services/blockedSenders');
 
 function getMessageDate(msg) {
   const timestamp = Number(msg && msg.timestamp);
@@ -11,6 +19,17 @@ function getMessageDate(msg) {
     if (Number.isFinite(date.getTime())) return date;
   }
   return new Date();
+}
+
+function formatBlacklistSender(value) {
+  if (!value) return 'missing';
+  if (String(value).includes('@g.us')) return 'group_or_chat';
+  return maskPhone(value);
+}
+
+function formatRawBlacklistDebugValue(value) {
+  if (value === undefined || value === null || value === '') return 'missing';
+  return String(value).replace(/\s+/g, ' ');
 }
 
 function createMessageHandler({ config, driveService, logService, processedStore }) {
@@ -25,6 +44,34 @@ function createMessageHandler({ config, driveService, logService, processedStore
       if (!tag) return;
 
       if (!msg.hasMedia) return;
+
+      const authorId = msg.author || '';
+      const fromId = msg.from || '';
+      const senderId = authorId || fromId || 'unknown';
+      const blockedNumbers = loadBlockedSenders(getDefaultBlockedSendersPath());
+      const blocked = isSenderBlocked(senderId, blockedNumbers);
+      console.log(
+        `[blacklist] author=${formatBlacklistSender(authorId)} ` +
+        `from=${formatBlacklistSender(fromId)} ` +
+        `effective=${formatBlacklistSender(senderId)} ` +
+        `effectiveLast4=${getPhoneSuffix(senderId)} ` +
+        `blocked=${blocked}`
+      );
+      if (isFullSenderDebugEnabled()) {
+        console.log(
+          `[blacklist-debug-local] authorRaw=${formatRawBlacklistDebugValue(authorId)} ` +
+          `authorNormalized=${normalizePhoneNumber(authorId) || 'missing'} ` +
+          `fromRaw=${formatRawBlacklistDebugValue(fromId)} ` +
+          `fromNormalized=${normalizePhoneNumber(fromId) || 'missing'} ` +
+          `effectiveRaw=${formatRawBlacklistDebugValue(senderId)} ` +
+          `effectiveNormalized=${normalizePhoneNumber(senderId) || 'missing'} ` +
+          `blocked=${blocked}`
+        );
+      }
+      if (blocked) {
+        console.log(`[IGNORED] blocked sender ${maskPhone(senderId)} in ${maskSensitiveText(chat.name, 80)}`);
+        return;
+      }
 
       const messageKey = buildMessageKey(msg, chat);
       if (messageKey && processedStore.has(messageKey)) {
@@ -47,7 +94,6 @@ function createMessageHandler({ config, driveService, logService, processedStore
         return;
       }
 
-      const senderId = msg.author || msg.from || 'unknown';
       const filename = buildUploadFilename(tag, senderId, media);
       const buffer = Buffer.from(media.data, 'base64');
       const messageDate = getMessageDate(msg);

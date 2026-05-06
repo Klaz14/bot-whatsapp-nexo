@@ -236,6 +236,54 @@ ALLOW_REAL_DRIVE_UPLOADS=false
 
 Los valores por defecto conservan el comportamiento actual.
 
+## Blacklist de remitentes
+
+El bot puede ignorar media enviada por numeros/remitentes bloqueados mediante un archivo local en la raiz:
+
+```text
+blocked-senders.json
+```
+
+Ese archivo esta ignorado por Git. Para crear uno nuevo, usar como referencia `blocked-senders.example.json`:
+
+```json
+{
+  "blockedNumbers": [
+    "LID_NORMALIZADO_SIN_ARROBA (effectiveNormalized)"
+  ]
+}
+```
+
+Los numeros se normalizan antes de comparar, por lo que se aceptan formatos como `+549...`, `549...`, `549...@c.us`, valores con espacios, guiones o parentesis, y sufijos de dispositivo de WhatsApp. En grupos se usa `message.author` y, si falta, `message.from`.
+
+WhatsApp tambien puede entregar algunos remitentes como identificadores `@lid` en lugar de un numero telefonico tradicional. En esos casos, el valor que debe agregarse a `blocked-senders.json` es el `effectiveNormalized` que muestra el diagnostico local, sin `@lid` ni otros sufijos.
+
+Si un remitente bloqueado envia media en un grupo configurado, el bot corta antes de `downloadMedia()`: no descarga, no sube a Drive y no marca el mensaje como procesado. Para aplicar cambios en `blocked-senders.json`, reiniciar el bot. Los logs de bloqueo no deben incluir telefonos completos.
+
+Para diagnosticar localmente que numero completo entrega WhatsApp al bot, se puede iniciar una sesion de PowerShell con:
+
+```powershell
+$env:BLACKLIST_DEBUG_FULL_SENDER="true"
+npm start
+```
+
+Con ese flag activo, enviar una imagen/PDF desde el remitente a bloquear y buscar una linea como:
+
+```text
+[blacklist-debug-local] ... effectiveNormalized=...
+```
+
+Copiar el valor de `effectiveNormalized` al archivo local `blocked-senders.json`. Si WhatsApp entrega un remitente `@lid`, ese valor puede verse como un identificador numerico normalizado en vez de un telefono. No incluir `@lid` en el archivo local.
+
+Al terminar, detener el bot y limpiar la variable:
+
+```powershell
+Remove-Item Env:\BLACKLIST_DEBUG_FULL_SENDER -ErrorAction SilentlyContinue
+npm start
+```
+
+Este modo puede mostrar numeros o identificadores completos en consola. Usarlo solo en entorno local, no copiar esa salida en reportes publicos, y no commitear valores reales. Este modo no cambia filenames, no escribe en logs persistentes y no sube esos datos a Drive.
+
 ## Logs
 
 El bot mantiene compatibilidad con:

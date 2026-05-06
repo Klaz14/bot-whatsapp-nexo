@@ -39,6 +39,11 @@ Este proyecto es un bot Node.js standalone que escucha grupos permitidos de What
 - No loguear IDs completos de carpetas, links completos de Drive ni rutas privadas; usar ruta logica sanitizada cuando haga falta.
 - No tocar `config.json` real sin autorizacion explicita; la carpeta raiz operativa debe configurarse localmente.
 - Para carpetas de mes/dia en Drive, usar fecha local operativa con `BOT_TIME_ZONE`, no UTC.
+- No versionar `blocked-senders.json`; mantener solo `blocked-senders.example.json` como ejemplo versionado.
+- No loguear telefonos completos al aplicar blacklist de remitentes.
+- `BLACKLIST_DEBUG_FULL_SENDER` es solo para diagnostico local temporal; no tratarlo como operacion normal ni copiar salidas con numeros completos o LID reales a reportes o commits.
+- Las reglas funcionales como blacklist no deben tocar `src/index.js`, `src/services/whatsappClient.js`, `src/config/env.js`, Puppeteer, cache/version de WhatsApp Web, `LocalAuth` ni flujo de inicializacion.
+- Cualquier cambio en arranque/conexion de WhatsApp requiere una fase especifica y prueba manual autorizada de `npm start`.
 
 ## Archivos y carpetas sensibles
 
@@ -55,6 +60,7 @@ No tocar, borrar, imprimir ni mover sin aprobacion explicita:
 - `.env.*` excepto `.env.example`
 - `processed-messages.json`
 - `processed-messages*.json`
+- `blocked-senders.json`
 
 ## Politica de secretos
 
