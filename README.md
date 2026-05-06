@@ -232,6 +232,37 @@ Ejemplos:
 
 El `ID` es incremental por carpeta diaria y vuelve a empezar en `1` cada dia. Para calcularlo, el bot lista los archivos existentes en la carpeta diaria y toma en cuenta solo nombres que cumplen el formato completo `<ID>_<HHmm>_<TAG>.<ext>`, con hora valida. Archivos manuales como `99_manual.pdf`, `152_comprobante.jpg` o `1_factura_cliente.pdf` se ignoran para evitar saltos artificiales en la secuencia. Si se sube manualmente un archivo con el formato exacto del bot, entonces si puede ocupar un ID valido. La hora `HHmm` sale del timestamp del mensaje de WhatsApp convertido con `BOT_TIME_ZONE`. El `TAG` sale del valor configurado para el grupo en `config.json.groups`. El filename no incluye telefonos, LID ni remitentes.
 
+## Calendario laboral
+
+La base de horario operativo se define con un calendario local editable. Esta fase solo agrega helpers puros y archivos de configuracion de ejemplo; todavia no activa cola de pendientes, no cambia el flujo actual del bot y no modifica Drive.
+
+El archivo real local debe llamarse:
+
+```text
+business-calendar.json
+```
+
+Ese archivo esta ignorado por Git. Usar `business-calendar.example.json` como plantilla:
+
+```json
+{
+  "timeZone": "America/Argentina/Buenos_Aires",
+  "businessDays": [1, 2, 3, 4, 5],
+  "startTime": "09:00",
+  "endTime": "16:30",
+  "nonBusinessDates": [
+    {
+      "date": "2026-01-01",
+      "name": "Feriado de ejemplo"
+    }
+  ]
+}
+```
+
+`businessDays` usa la numeracion de JavaScript: `0` domingo, `1` lunes, `2` martes, `3` miercoles, `4` jueves, `5` viernes y `6` sabado. Por defecto el horario operativo es lunes a viernes de `09:00` a `16:30` en `America/Argentina/Buenos_Aires`.
+
+Los dias no habiles se cargan manualmente en `nonBusinessDates` con formato `YYYY-MM-DD`. Tambien se soporta una lista simple de strings si no hace falta nombre descriptivo. El horario de inicio es inclusivo y `16:30` tambien se considera dentro de horario; despues de `16:30`, sabados, domingos y dias no habiles pasan al proximo dia habil.
+
 Para bloquear procesamiento sin cambiar codigo:
 
 ```env

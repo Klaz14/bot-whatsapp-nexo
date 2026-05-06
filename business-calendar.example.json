@@ -1,0 +1,12 @@
+{
+  "timeZone": "America/Argentina/Buenos_Aires",
+  "businessDays": [1, 2, 3, 4, 5],
+  "startTime": "09:00",
+  "endTime": "16:30",
+  "nonBusinessDates": [
+    {
+      "date": "2026-01-01",
+      "name": "Feriado de ejemplo"
+    }
+  ]
+}

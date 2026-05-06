@@ -42,6 +42,11 @@ Este proyecto es un bot Node.js standalone que escucha grupos permitidos de What
 - No loguear IDs completos de carpetas, links completos de Drive ni rutas privadas; usar ruta logica sanitizada cuando haga falta.
 - No tocar `config.json` real sin autorizacion explicita; la carpeta raiz operativa debe configurarse localmente.
 - Para carpetas de mes/dia en Drive, usar fecha local operativa con `BOT_TIME_ZONE`, no UTC.
+- No hardcodear feriados o dias no habiles en codigo; usar `business-calendar.json` local y `business-calendar.example.json` como plantilla.
+- No consultar APIs externas de feriados sin una fase explicita y documentada.
+- No tocar arranque de WhatsApp para logica de horario operativo o calendario laboral.
+- No versionar `business-calendar.json` si contiene calendario operativo local.
+- En futuras fases de pendientes fuera de horario, preservar idempotencia y no marcar `processed` final hasta que el archivo quede subido a `Entrantes`.
 - No versionar `blocked-senders.json`; mantener solo `blocked-senders.example.json` como ejemplo versionado.
 - No loguear telefonos completos al aplicar blacklist de remitentes.
 - `BLACKLIST_DEBUG_FULL_SENDER` es solo para diagnostico local temporal; no tratarlo como operacion normal ni copiar salidas con numeros completos o LID reales a reportes o commits.
