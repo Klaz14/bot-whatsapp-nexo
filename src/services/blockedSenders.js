@@ -37,7 +37,7 @@ function normalizeBlockedNumbers(value) {
   );
 }
 
-function loadBlockedSenders(filePath) {
+function loadBlockedSenders(filePath, options = {}) {
   if (!filePath || !fs.existsSync(filePath)) {
     return [];
   }
@@ -47,6 +47,9 @@ function loadBlockedSenders(filePath) {
     return normalizeBlockedNumbers(parsed && parsed.blockedNumbers);
   } catch (err) {
     console.warn('[blocked-senders] invalid local blacklist file; ignoring it for this message.');
+    if (options && typeof options.onWarning === 'function') {
+      options.onWarning({ reason: 'invalid-json', error: err });
+    }
     return [];
   }
 }

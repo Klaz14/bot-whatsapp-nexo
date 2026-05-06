@@ -71,6 +71,9 @@ Este proyecto es un bot Node.js standalone que escucha grupos permitidos de What
 - Las notificaciones a multiples grupos deben manejar errores por grupo: si un destino falta o falla, continuar con los demas y loguear solo datos seguros.
 - `WHATSAPP_ALERT_GROUPS_JSON` debe mantener compatibilidad con `WHATSAPP_ALERT_GROUP_NAME` como fallback y no debe romper arranque si el JSON es invalido.
 - El aviso de apagado por `SIGINT`/`SIGTERM` es best-effort; no debe dejar el proceso colgado ni tocar sesion/cache.
+- Las alertas criticas deben cubrir errores operativos importantes sin notificar cada OK, duplicado, blacklist ignorado, comprobante recibido o corrida sin pendientes.
+- Los errores criticos no deben ocultarse por rate limit. Solo warnings repetidos de configuracion pueden deduplicarse para reducir ruido.
+- Las alertas de errores deben emitirse desde capas de orquestacion cuando sea posible, para evitar doble alerta por el mismo fallo.
 - No versionar `blocked-senders.json`; mantener solo `blocked-senders.example.json` como ejemplo versionado.
 - No loguear telefonos completos al aplicar blacklist de remitentes.
 - `BLACKLIST_DEBUG_FULL_SENDER` es solo para diagnostico local temporal; no tratarlo como operacion normal ni copiar salidas con numeros completos o LID reales a reportes o commits.

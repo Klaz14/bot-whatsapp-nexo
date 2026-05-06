@@ -396,6 +396,25 @@ No hay anti-spam ni rate limit sobre comprobantes de clientes. El bot no debe ig
 
 Los avisos no deben incluir telefonos completos, LID completos, links completos de Drive, tokens, IDs crudos ni payloads de chat. Los errores de notificacion se capturan y no deben tumbar el bot ni bloquear `ready`.
 
+### Alertas criticas
+
+Ademas de los avisos de estado, el bot envia alertas operativas para eventos que requieren revision:
+
+- fallo subiendo un comprobante a `Entrantes`;
+- fallo encolando un comprobante fuera de horario;
+- pendiente con metadata invalida;
+- pendiente fallido reintentable;
+- pendiente que agoto intentos;
+- error general del processor de pendientes;
+- pendiente copiado pero no borrado de temporales;
+- fallo escribiendo `processed-messages.json`;
+- `business-calendar.json` faltante/invalido y uso de defaults;
+- `blocked-senders.json` invalido;
+- carpeta de pendientes sin ID explicito y uso de fallback por nombre;
+- `auth_failure`, `disconnected`, timeout de `ready` o error inicializando WhatsApp.
+
+No se alerta cada archivo OK, cada duplicado ignorado, cada remitente bloqueado, cada corrida del processor sin pendientes ni cada comprobante recibido. Estas alertas no limitan ni filtran comprobantes por cantidad.
+
 Para bloquear procesamiento sin cambiar codigo:
 
 ```env

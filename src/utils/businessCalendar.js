@@ -81,8 +81,11 @@ function normalizeBusinessCalendar(raw = {}) {
   };
 }
 
-function loadBusinessCalendar(filePath) {
+function loadBusinessCalendar(filePath, options = {}) {
   if (!filePath || !fs.existsSync(filePath)) {
+    if (options && typeof options.onWarning === 'function') {
+      options.onWarning({ reason: 'missing', filePath });
+    }
     return normalizeBusinessCalendar(DEFAULT_BUSINESS_CALENDAR);
   }
 
@@ -90,6 +93,9 @@ function loadBusinessCalendar(filePath) {
     const raw = JSON.parse(fs.readFileSync(filePath, 'utf8'));
     return normalizeBusinessCalendar(raw);
   } catch (err) {
+    if (options && typeof options.onWarning === 'function') {
+      options.onWarning({ reason: 'invalid-json', error: err });
+    }
     return normalizeBusinessCalendar(DEFAULT_BUSINESS_CALENDAR);
   }
 }

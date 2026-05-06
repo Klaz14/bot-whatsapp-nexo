@@ -411,6 +411,35 @@ Ejecutar solo con aprobacion operativa:
 - Actualizar `business-calendar.json` con feriados antes de cada periodo operativo.
 - Mantener backups recientes de sesion WhatsApp y token OAuth.
 
+## Alertas Criticas
+
+El bot envia alertas a los grupos configurados cuando detecta eventos que requieren intervencion operativa:
+
+- error subiendo comprobante a `Entrantes`;
+- error encolando comprobante fuera de horario;
+- pendiente fallido o con intentos agotados;
+- metadata invalida en pendiente;
+- error general del processor;
+- pendiente copiado a `Entrantes` pero no eliminado de temporales;
+- fallo escribiendo `processed-messages.json`;
+- calendario laboral faltante/invalido y uso de defaults;
+- blacklist local invalida;
+- carpeta de pendientes sin ID explicito y uso de fallback por nombre;
+- `auth_failure`, `disconnected`, timeout de `ready` o error inicializando WhatsApp.
+
+Eventos que no deben generar alerta:
+
+- cada comprobante OK;
+- cada duplicado ignorado;
+- cada remitente bloqueado;
+- cada corrida sin pendientes;
+- cada mensaje fuera de horario;
+- cada comprobante recibido.
+
+Las alertas se sanitizan: no deben incluir telefonos completos, LID completos, links completos de Drive, IDs completos, tokens, secretos ni payloads de chat.
+
+Las alertas no implementan cupos ni rate limits sobre comprobantes. Los warnings de configuracion repetidos pueden deduplicarse para no generar ruido, pero los errores criticos no deben ocultarse.
+
 ## Checklist de Recuperacion
 
 ### WhatsApp no llega a ready

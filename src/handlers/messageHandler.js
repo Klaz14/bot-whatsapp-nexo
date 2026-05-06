@@ -38,11 +38,29 @@ function formatRawBlacklistDebugValue(value) {
   return String(value).replace(/\s+/g, ' ');
 }
 
-function getBusinessCalendar(config) {
-  return loadBusinessCalendar(config.paths && config.paths.businessCalendar);
+function notifySafely(operationalNotifier, level, eventType, message, details = {}, options = {}) {
+  if (!operationalNotifier || typeof operationalNotifier[level] !== 'function') return;
+  operationalNotifier[level](eventType, message, details, options).catch((err) => {
+    console.warn(`[ALERT] no se pudo enviar alerta ${eventType}: ${maskSensitiveText(err && err.message)}`);
+  });
 }
 
-function createMessageHandler({ config, driveService, logService, processedStore }) {
+function getBusinessCalendar(config, operationalNotifier) {
+  return loadBusinessCalendar(config.paths && config.paths.businessCalendar, {
+    onWarning: (warning) => {
+      notifySafely(
+        operationalNotifier,
+        'notifyWarning',
+        'business_calendar_defaults',
+        'Calendario laboral no disponible o invalido; usando defaults.',
+        { reason: warning && warning.reason },
+        { dedupeKey: 'business-calendar-defaults' }
+      );
+    },
+  });
+}
+
+function createMessageHandler({ config, driveService, logService, processedStore, operationalNotifier }) {
   return async function handleMessage(msg) {
     try {
       if (!config.processingEnabled) return;
@@ -58,7 +76,18 @@ function createMessageHandler({ config, driveService, logService, processedStore
       const authorId = msg.author || '';
       const fromId = msg.from || '';
       const senderId = authorId || fromId || 'unknown';
-      const blockedNumbers = loadBlockedSenders(getDefaultBlockedSendersPath());
+      const blockedNumbers = loadBlockedSenders(getDefaultBlockedSendersPath(), {
+        onWarning: (warning) => {
+          notifySafely(
+            operationalNotifier,
+            'notifyWarning',
+            'blocked_senders_invalid',
+            'Blacklist local invalida; se ignora temporalmente.',
+            { reason: warning && warning.reason },
+            { dedupeKey: 'blocked-senders-invalid' }
+          );
+        },
+      });
       const blocked = isSenderBlocked(senderId, blockedNumbers);
       console.log(
         `[blacklist] author=${formatBlacklistSender(authorId)} ` +
@@ -94,7 +123,7 @@ function createMessageHandler({ config, driveService, logService, processedStore
       }
 
       const messageDate = getMessageDate(msg);
-      const businessCalendar = getBusinessCalendar(config);
+      const businessCalendar = getBusinessCalendar(config, operationalNotifier);
       const processNow = isWithinBusinessHours(messageDate, businessCalendar);
       const operationalDate = getOperationalDateForMessage(messageDate, businessCalendar);
 
@@ -121,6 +150,16 @@ function createMessageHandler({ config, driveService, logService, processedStore
       if (!processNow) {
         const operationalDateText = getBusinessDateString(operationalDate, businessCalendar);
         try {
+          if (!config.google.pendingFolderId) {
+            notifySafely(
+              operationalNotifier,
+              'notifyWarning',
+              'pending_folder_fallback',
+              'Carpeta de pendientes sin ID explicito; se usa busqueda/creacion por nombre.',
+              {},
+              { dedupeKey: 'pending-folder-fallback' }
+            );
+          }
           const result = await driveService.createPendingUpload({
             buffer,
             mimeType: media.mimetype,
@@ -152,6 +191,17 @@ function createMessageHandler({ config, driveService, logService, processedStore
             error: err,
           });
           console.error(`[ERROR] no se pudo encolar pendiente: ${maskSensitiveText(err && err.message)}`);
+          notifySafely(
+            operationalNotifier,
+            'notifyError',
+            'pending_enqueue_failed',
+            'No se pudo guardar comprobante fuera de horario en pendientes.',
+            {
+              group: chat.name,
+              tag,
+              error: err,
+            }
+          );
         }
         return;
       }
@@ -178,7 +228,23 @@ function createMessageHandler({ config, driveService, logService, processedStore
         console.log(`[OK] ${chat.name} -> ${result.folderPath}/${filename}`);
         console.log(`     ${driveRef}`);
         if (messageKey) {
-          processedStore.markProcessed(messageKey, { status: 'uploaded' });
+          try {
+            processedStore.markProcessed(messageKey, { status: 'uploaded' });
+          } catch (storeErr) {
+            console.error(`[ERROR] no se pudo marcar processed: ${maskSensitiveText(storeErr && storeErr.message)}`);
+            notifySafely(
+              operationalNotifier,
+              'notifyError',
+              'processed_store_write_failed',
+              'Comprobante subido, pero no se pudo actualizar idempotencia local.',
+              {
+                group: chat.name,
+                tag,
+                filename,
+                error: storeErr,
+              }
+            );
+          }
         }
       } catch (err) {
         logService.errorEvent({
@@ -191,6 +257,18 @@ function createMessageHandler({ config, driveService, logService, processedStore
           error: err,
         });
         console.error(`[ERROR] no se pudo subir ${filename}: ${maskSensitiveText(err.message)}`);
+        notifySafely(
+          operationalNotifier,
+          'notifyError',
+          'drive_upload_failed',
+          'Fallo subiendo comprobante a Entrantes.',
+          {
+            group: chat.name,
+            tag,
+            filename,
+            error: err,
+          }
+        );
       }
     } catch (err) {
       console.error('[handler] error inesperado:', maskSensitiveText(err && err.message));
@@ -200,6 +278,13 @@ function createMessageHandler({ config, driveService, logService, processedStore
         tag: '-',
         error: err,
       });
+      notifySafely(
+        operationalNotifier,
+        'notifyError',
+        'message_handler_unexpected',
+        'Error inesperado procesando mensaje recibido.',
+        { error: err }
+      );
     }
   };
 }

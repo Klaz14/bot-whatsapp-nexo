@@ -14,9 +14,9 @@ function startBot() {
   const driveService = createDriveService(config);
   const logService = createLogService(config);
   const processedStore = createProcessedStore(config);
-  const pendingProcessor = createPendingProcessor({ config, driveService, processedStore });
   const client = createWhatsappClient(config);
   const operationalNotifier = createOperationalNotifier({ config, client });
+  const pendingProcessor = createPendingProcessor({ config, driveService, processedStore, operationalNotifier });
   let ready = false;
   let readyDiagnosticTimer;
 
@@ -36,6 +36,13 @@ function startBot() {
         'Posible problema de version/cache de WhatsApp Web, sesion o estado de conexion.'
       );
       console.warn('El proceso sigue vivo para observacion; no se borro sesion ni cache.');
+      operationalNotifier.notifyError(
+        'whatsapp_ready_timeout',
+        'WhatsApp autentico pero no llego a ready dentro del tiempo esperado.',
+        { timeoutSeconds: seconds }
+      ).catch((err) => {
+        console.warn('[OPERATIONAL ALERT] error alertando ready timeout:', maskSensitiveText(err && err.message));
+      });
     }, seconds * 1000);
     if (readyDiagnosticTimer.unref) readyDiagnosticTimer.unref();
   }
@@ -54,6 +61,13 @@ function startBot() {
   client.on('auth_failure', (msg) => {
     clearReadyDiagnosticTimer();
     console.error('Falla de autenticacion:', maskSensitiveText(msg));
+    operationalNotifier.notifyError(
+      'whatsapp_auth_failure',
+      'Falla de autenticacion de WhatsApp. Revisar sesion del bot.',
+      { reason: msg }
+    ).catch((err) => {
+      console.warn('[OPERATIONAL ALERT] error alertando auth_failure:', maskSensitiveText(err && err.message));
+    });
   });
 
   client.on('ready', () => {
@@ -76,6 +90,13 @@ function startBot() {
   client.on('disconnected', (reason) => {
     clearReadyDiagnosticTimer();
     console.warn('Desconectado de WhatsApp:', maskSensitiveText(reason));
+    operationalNotifier.notifyError(
+      'whatsapp_disconnected',
+      'WhatsApp se desconecto. Revisar estado del bot.',
+      { reason }
+    ).catch((err) => {
+      console.warn('[OPERATIONAL ALERT] error alertando disconnected:', maskSensitiveText(err && err.message));
+    });
   });
 
   client.on('loading_screen', (percent, message) => {
@@ -90,11 +111,24 @@ function startBot() {
     console.log('WhatsApp remote session saved.');
   });
 
-  client.on('message', createMessageHandler({ config, driveService, logService, processedStore }));
+  client.on('message', createMessageHandler({
+    config,
+    driveService,
+    logService,
+    processedStore,
+    operationalNotifier,
+  }));
 
   process.on('unhandledRejection', (err) => {
     console.error('Unhandled rejection:', err);
     logService.error(`${new Date().toISOString()}\tunhandledRejection\t-\t-\tERROR: ${err && err.message}`);
+    operationalNotifier.notifyError(
+      'unhandled_rejection',
+      'Error inesperado no capturado por el bot.',
+      { error: err }
+    ).catch((alertErr) => {
+      console.warn('[OPERATIONAL ALERT] error alertando unhandledRejection:', maskSensitiveText(alertErr && alertErr.message));
+    });
   });
 
   console.log('Iniciando bot...');
@@ -107,6 +141,13 @@ function startBot() {
     const message = maskSensitiveText(err && err.message ? err.message : String(err));
     console.error('Error inicializando WhatsApp:', message);
     logService.error(`${new Date().toISOString()}\twhatsapp_initialize\t-\t-\tERROR: ${message}`);
+    operationalNotifier.notifyError(
+      'whatsapp_initialize_failed',
+      'No se pudo inicializar WhatsApp.',
+      { error: err }
+    ).catch((alertErr) => {
+      console.warn('[OPERATIONAL ALERT] error alertando inicializacion:', maskSensitiveText(alertErr && alertErr.message));
+    });
   });
   return client;
 }

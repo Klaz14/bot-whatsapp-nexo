@@ -34,6 +34,39 @@ function buildOperationalMessage(type) {
   return OPERATIONAL_MESSAGES[type] || '';
 }
 
+function formatDetailValue(value) {
+  if (value === undefined || value === null || value === '') return '';
+  if (value instanceof Error) return maskSensitiveText(value.message, 160);
+  if (typeof value === 'object') return maskSensitiveText(JSON.stringify(value), 160);
+  return maskSensitiveText(value, 160);
+}
+
+function formatAlertMessage(severity, eventType, message, details = {}) {
+  const safeSeverity = String(severity || 'WARNING').toUpperCase();
+  const safeEventType = String(eventType || 'operational_event')
+    .replace(/[^A-Za-z0-9_.:-]+/g, '_')
+    .slice(0, 80);
+  const safeMessage = maskSensitiveText(message || 'Evento operativo requiere revision', 180);
+  const icon = safeSeverity === 'ERROR' || safeSeverity === 'CRITICAL' ? '🚨' : '⚠️';
+  const lines = [
+    `${icon} BOT TRANSFERENCIAS - ${safeSeverity}`,
+    `Evento: ${safeEventType}`,
+    `Detalle: ${safeMessage}`,
+  ];
+
+  for (const [key, value] of Object.entries(details || {})) {
+    const safeKey = String(key || '')
+      .replace(/[^A-Za-z0-9_.:-]+/g, '_')
+      .slice(0, 40);
+    const safeValue = formatDetailValue(value);
+    if (safeKey && safeValue) {
+      lines.push(`${safeKey}: ${safeValue}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
 function isOperationalMessageSafe(message) {
   const text = String(message || '');
   if (!text) return false;
@@ -77,11 +110,22 @@ function createOperationalNotifier({
   let cachedChats;
   let lastBusinessHoursState;
   let lastStateMessageKey = '';
+  const dedupedAlertKeys = new Set();
   let shutdownHooksInstalled = false;
   let shutdownInProgress = false;
 
   function loadCalendar() {
-    return loadBusinessCalendar(config.paths && config.paths.businessCalendar);
+    return loadBusinessCalendar(config.paths && config.paths.businessCalendar, {
+      onWarning: (warning) => {
+        notifyWarning('business_calendar_defaults', 'Calendario laboral no disponible o invalido; usando defaults.', {
+          reason: warning && warning.reason,
+        }, {
+          dedupeKey: 'business-calendar-defaults',
+        }).catch((err) => {
+          console.warn(`[OPERATIONAL ALERT] error alertando calendario: ${maskSensitiveText(err && err.message)}`);
+        });
+      },
+    });
   }
 
   function isEnabled() {
@@ -164,12 +208,10 @@ function createOperationalNotifier({
     };
   }
 
-  async function notify(type, options = {}) {
-    if (!shouldNotify(type)) {
+  async function sendPreparedMessage(message, options = {}) {
+    if (!isEnabled()) {
       return { ok: false, reason: 'disabled' };
     }
-
-    const message = buildOperationalMessage(type);
     if (!isOperationalMessageSafe(message)) {
       console.warn('[OPERATIONAL NOTIFY] mensaje operativo rechazado por seguridad');
       return { ok: false, reason: 'unsafe-message' };
@@ -190,6 +232,40 @@ function createOperationalNotifier({
       console.warn(`[OPERATIONAL NOTIFY] no se pudo enviar: ${maskSensitiveText(err && err.message)}`);
       return { ok: false, reason: 'send-failed', error: err };
     }
+  }
+
+  async function notify(type, options = {}) {
+    if (!shouldNotify(type)) {
+      return { ok: false, reason: 'disabled' };
+    }
+
+    return sendPreparedMessage(buildOperationalMessage(type), options);
+  }
+
+  async function notifyAlert(severity, eventType, message, details = {}, options = {}) {
+    if (options.dedupeKey) {
+      if (dedupedAlertKeys.has(options.dedupeKey)) {
+        return { ok: false, reason: 'duplicate-alert' };
+      }
+      dedupedAlertKeys.add(options.dedupeKey);
+    }
+
+    return sendPreparedMessage(
+      formatAlertMessage(severity, eventType, message, details),
+      options.stateKey ? { stateKey: options.stateKey } : {}
+    );
+  }
+
+  function notifyWarning(eventType, message, details, options) {
+    return notifyAlert('WARNING', eventType, message, details, options);
+  }
+
+  function notifyError(eventType, message, details, options) {
+    return notifyAlert('ERROR', eventType, message, details, options);
+  }
+
+  function notifyCritical(eventType, message, details, options) {
+    return notifyAlert('CRITICAL', eventType, message, details, options);
   }
 
   async function notifyReady(now = nowProvider()) {
@@ -273,8 +349,12 @@ function createOperationalNotifier({
     installShutdownHooks,
     isOperationalMessageSafe,
     notify,
+    notifyAlert,
+    notifyCritical,
+    notifyError,
     notifyReady,
     notifyShutdown,
+    notifyWarning,
     startOperationalStatusWatcher,
     stopOperationalStatusWatcher,
   };
@@ -284,6 +364,7 @@ module.exports = {
   OPERATIONAL_MESSAGES,
   buildOperationalMessage,
   createOperationalNotifier,
+  formatAlertMessage,
   isOperationalMessageSafe,
   normalizeAlertGroupNames,
 };
