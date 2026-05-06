@@ -92,6 +92,35 @@ function parseList(value, variableName) {
   return trimmed.split(',').map((item) => item.trim()).filter(Boolean);
 }
 
+function parseOptionalJsonList(value, variableName) {
+  if (!value || !value.trim()) return null;
+
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) {
+      throw new Error('debe ser un array JSON');
+    }
+    return parsed.map((item) => String(item).trim()).filter(Boolean);
+  } catch (err) {
+    console.warn(`${variableName} invalido; se usara WHATSAPP_ALERT_GROUP_NAME como fallback.`);
+    return null;
+  }
+}
+
+function normalizeUniqueList(values) {
+  const seen = new Set();
+  const result = [];
+
+  for (const value of values || []) {
+    const item = String(value || '').trim();
+    if (!item || seen.has(item)) continue;
+    seen.add(item);
+    result.push(item);
+  }
+
+  return result;
+}
+
 function getNumber(name, defaultValue) {
   const value = process.env[name];
   if (value === undefined || value === '') return defaultValue;
@@ -134,6 +163,15 @@ function loadConfig() {
 
   const oauthRedirectHost = process.env.GOOGLE_OAUTH_REDIRECT_HOST || '127.0.0.1';
   const oauthRedirectPort = getNumber('GOOGLE_OAUTH_REDIRECT_PORT', 53682);
+  const parsedAlertGroupNames = parseOptionalJsonList(
+    process.env.WHATSAPP_ALERT_GROUPS_JSON,
+    'WHATSAPP_ALERT_GROUPS_JSON'
+  );
+  const alertGroupNames = normalizeUniqueList(
+    parsedAlertGroupNames && parsedAlertGroupNames.length
+      ? parsedAlertGroupNames
+      : [process.env.WHATSAPP_ALERT_GROUP_NAME]
+  );
 
   return {
     projectRoot: PROJECT_ROOT,
@@ -171,6 +209,15 @@ function loadConfig() {
     pendingProcessor: {
       intervalMinutes: getPositiveNumber('PENDING_PROCESSOR_INTERVAL_MINUTES', 5),
       maxAttempts: getPositiveNumber('PENDING_PROCESSOR_MAX_ATTEMPTS', 3),
+    },
+    operationalNotifications: {
+      enabled: getBoolean('OPERATIONAL_NOTIFICATIONS_ENABLED', true),
+      alertGroupName: process.env.WHATSAPP_ALERT_GROUP_NAME || '',
+      alertGroupNames,
+      notifyOnReady: getBoolean('OPERATIONAL_NOTIFY_ON_READY', true),
+      notifyOnOffHours: getBoolean('OPERATIONAL_NOTIFY_ON_OFF_HOURS', true),
+      notifyOnShutdown: getBoolean('OPERATIONAL_NOTIFY_ON_SHUTDOWN', false),
+      statusCheckIntervalSeconds: getPositiveNumber('OPERATIONAL_STATUS_CHECK_INTERVAL_SECONDS', 60),
     },
     google: {
       driveFolderId: process.env.GOOGLE_DRIVE_FOLDER_ID || fileConfig.driveFolderId,

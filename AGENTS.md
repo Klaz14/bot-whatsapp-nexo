@@ -55,10 +55,18 @@ Este proyecto es un bot Node.js standalone que escucha grupos permitidos de What
 - El processor de pendientes debe correr solo dentro de horario operativo, despues de `ready`, sin bloquear ni alterar la inicializacion de WhatsApp.
 - El processor debe copiar a `Entrantes` y confirmar exito antes de marcar `processed`, marcar `uploaded` o borrar el pendiente.
 - Si falla el procesamiento de un pendiente, conservar el archivo y marcar estado `failed` con error sanitizado.
+- El grupo original del pendiente debe conservarse como `groupFolderName` o equivalente seguro; el `tag` no debe ser la unica fuente para decidir carpeta final.
+- En pendientes, usar el grupo original sanitizado para la carpeta de `Entrantes` y el `tag` solo para el filename.
 - Las auditorias de pendientes deben ser read-only salvo fase explicita; no borrar, mover, copiar ni cambiar `appProperties`.
 - No imprimir IDs completos de Drive, links, telefonos, LID ni payloads al auditar pendientes.
 - No modificar metadata de pendientes manualmente sin instruccion explicita.
 - No tocar `ready`, `whatsappClient.js` ni arranque de WhatsApp para tareas de auditoria de pendientes.
+- No implementar anti-spam, rate limit ni cupos que limiten, ignoren o supriman comprobantes de clientes por cantidad.
+- No ocultar errores criticos por rate limit. Solo se permite deduplicar mensajes de estado operativo identicos dentro de una misma ventana de estado.
+- Las notificaciones operativas no deben bloquear `ready`, no deben tocar `whatsappClient.js` y no deben enviar telefonos completos, LID completos, links completos, tokens, IDs crudos ni payloads.
+- Las notificaciones a multiples grupos deben manejar errores por grupo: si un destino falta o falla, continuar con los demas y loguear solo datos seguros.
+- `WHATSAPP_ALERT_GROUPS_JSON` debe mantener compatibilidad con `WHATSAPP_ALERT_GROUP_NAME` como fallback y no debe romper arranque si el JSON es invalido.
+- El aviso de apagado por `SIGINT`/`SIGTERM` es best-effort; no debe dejar el proceso colgado ni tocar sesion/cache.
 - No versionar `blocked-senders.json`; mantener solo `blocked-senders.example.json` como ejemplo versionado.
 - No loguear telefonos completos al aplicar blacklist de remitentes.
 - `BLACKLIST_DEBUG_FULL_SENDER` es solo para diagnostico local temporal; no tratarlo como operacion normal ni copiar salidas con numeros completos o LID reales a reportes o commits.

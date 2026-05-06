@@ -5,6 +5,7 @@ const { createLogService } = require('./services/logService');
 const { createProcessedStore } = require('./services/processedStore');
 const { createWhatsappClient } = require('./services/whatsappClient');
 const { createPendingProcessor } = require('./services/pendingProcessor');
+const { createOperationalNotifier } = require('./services/operationalNotifier');
 const { createMessageHandler } = require('./handlers/messageHandler');
 const { maskSensitiveText } = require('./utils/mask');
 
@@ -15,6 +16,7 @@ function startBot() {
   const processedStore = createProcessedStore(config);
   const pendingProcessor = createPendingProcessor({ config, driveService, processedStore });
   const client = createWhatsappClient(config);
+  const operationalNotifier = createOperationalNotifier({ config, client });
   let ready = false;
   let readyDiagnosticTimer;
 
@@ -64,6 +66,11 @@ function startBot() {
     }
     console.log(`Carpeta destino de Drive: ${maskSensitiveText(config.google.driveFolderId)}\n`);
     pendingProcessor.start();
+    operationalNotifier.notifyReady().catch((err) => {
+      console.warn('[OPERATIONAL NOTIFY] error en ready:', maskSensitiveText(err && err.message));
+    });
+    operationalNotifier.startOperationalStatusWatcher();
+    operationalNotifier.installShutdownHooks();
   });
 
   client.on('disconnected', (reason) => {

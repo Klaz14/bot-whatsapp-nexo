@@ -81,6 +81,13 @@ LOG_MAX_FIELD_LENGTH=120
 PROCESSED_STORE_PATH=processed-messages.json
 PROCESSED_STORE_TTL_HOURS=720
 PROCESSED_STORE_MAX_ITEMS=5000
+WHATSAPP_ALERT_GROUP_NAME=
+WHATSAPP_ALERT_GROUPS_JSON=[]
+OPERATIONAL_NOTIFICATIONS_ENABLED=true
+OPERATIONAL_NOTIFY_ON_READY=true
+OPERATIONAL_NOTIFY_ON_OFF_HOURS=true
+OPERATIONAL_NOTIFY_ON_SHUTDOWN=false
+OPERATIONAL_STATUS_CHECK_INTERVAL_SECONDS=60
 BOT_PROCESSING_ENABLED=true
 ALLOW_REAL_WHATSAPP_CONNECTION=true
 ALLOW_REAL_DRIVE_UPLOADS=true
@@ -302,6 +309,8 @@ pending_1820_BT_a1b2c3d4.jpg
 
 La metadata esencial se guarda en `appProperties` de Google Drive: `messageKey` hasheado, estado del pendiente, grupo sanitizado, tag, MIME, hora original UTC/local, fecha operativa, fecha de encolado, intentos y ultimo error sanitizado. No debe incluir telefonos completos, LID completos, links completos de Drive, tokens ni payloads de chat.
 
+El pendiente conserva el grupo original como `groupFolderName` sanitizado y conserva el `tag` por separado. Al procesarse, la carpeta final en `Entrantes` sale de `groupFolderName`; el `tag` solo se usa en el filename final `<ID>_<HHmm>_<TAG>.<ext>`. No usar el tag como unica referencia para decidir carpeta final.
+
 Estados previstos:
 
 ```text
@@ -341,6 +350,51 @@ Si quedan pendientes sin procesar:
 5. Si un archivo queda `failed`, dejarlo en pendientes para que el scheduler lo reintente hasta `PENDING_PROCESSOR_MAX_ATTEMPTS`.
 6. Si agoto intentos, revisar el `lastError` sanitizado y permisos de Drive antes de tocar archivos manualmente.
 7. No borrar pendientes manualmente salvo que haya backup/verificacion de que ya estan en `Entrantes`.
+
+## Notificaciones operativas
+
+El bot puede preparar y enviar avisos operativos seguros a un grupo administrador de WhatsApp una vez que ya llego a `ready`. Esta integracion no cambia el arranque de WhatsApp ni limita la cantidad de comprobantes recibidos.
+
+Variables:
+
+```env
+WHATSAPP_ALERT_GROUP_NAME=
+WHATSAPP_ALERT_GROUPS_JSON=[]
+OPERATIONAL_NOTIFICATIONS_ENABLED=true
+OPERATIONAL_NOTIFY_ON_READY=true
+OPERATIONAL_NOTIFY_ON_OFF_HOURS=true
+OPERATIONAL_NOTIFY_ON_SHUTDOWN=false
+OPERATIONAL_STATUS_CHECK_INTERVAL_SECONDS=60
+```
+
+Para un unico grupo administrador, usar:
+
+```env
+WHATSAPP_ALERT_GROUP_NAME=BOT ALERTAS
+```
+
+Para varios grupos administradores, usar:
+
+```env
+WHATSAPP_ALERT_GROUPS_JSON=["BOT ALERTAS","ADMIN TRANSFERENCIAS"]
+```
+
+Si `WHATSAPP_ALERT_GROUPS_JSON` existe y es un JSON valido, tiene prioridad. Si no existe o es invalido, el bot usa `WHATSAPP_ALERT_GROUP_NAME` como fallback. Se ignoran strings vacios y nombres duplicados. Si no queda ningun grupo configurado, el bot solo deja el aviso en consola y no envia WhatsApp.
+
+Si un grupo configurado no existe o falla el envio a un destino, el bot registra un warning seguro y continua con los demas grupos. Un problema de notificacion no debe tumbar el proceso.
+
+Mensajes previstos:
+
+- Ready dentro de horario: `✅ Bot preparado para trabajar. Horario operativo activo. Los comprobantes se procesarán en Entrantes.`
+- Ready fuera de horario: `🌙 Bot activo fuera de horario. Desde ahora los comprobantes quedan en lista de pendientes y se procesarán al comienzo del siguiente día hábil.`
+- Fin de horario operativo: `🌙 Fin del horario operativo. Desde ahora los comprobantes quedan en lista de pendientes y se procesarán al comienzo del siguiente día hábil.`
+- Apagado local ordenado, solo si `OPERATIONAL_NOTIFY_ON_SHUTDOWN=true`: `⚠️ Bot detenido manualmente. Si se reciben comprobantes mientras está apagado, no podrán ser capturados hasta que vuelva a iniciar.`
+
+El aviso de apagado por `Ctrl + C`, `SIGINT` o `SIGTERM` es best-effort: el bot intenta enviarlo durante unos segundos y luego deja cerrar el proceso. En un corte abrupto, crash, cierre forzado del host o caida de red, no hay garantia de envio. Por defecto esta desactivado con `OPERATIONAL_NOTIFY_ON_SHUTDOWN=false`.
+
+No hay anti-spam ni rate limit sobre comprobantes de clientes. El bot no debe ignorar, limitar ni suprimir media por cantidad. La unica deduplicacion permitida en esta fase es evitar repetir el mismo mensaje de estado operativo, por ejemplo el aviso de fuera de horario, dentro de la misma ventana de estado.
+
+Los avisos no deben incluir telefonos completos, LID completos, links completos de Drive, tokens, IDs crudos ni payloads de chat. Los errores de notificacion se capturan y no deben tumbar el bot ni bloquear `ready`.
 
 Para bloquear procesamiento sin cambiar codigo:
 
