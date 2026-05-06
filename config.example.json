@@ -1,6 +1,8 @@
 {
   "driveFolderId": "YOUR_GOOGLE_DRIVE_FOLDER_ID",
   "groups": {
-    "WHATSAPP_GROUP_NAME": "TAG"
+    "WHATSAPP_GROUP1_NAME": "TAG1",
+    "WHATSAPP_GROUP2_NAME": "TAG2",
+    "WHATSAPP_GROUP3_NAME": "TAG3"
   }
 }
