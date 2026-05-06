@@ -272,6 +272,8 @@ La carpeta raiz de pendientes se puede configurar con:
 
 ```env
 GOOGLE_DRIVE_PENDING_FOLDER_ID=
+PENDING_PROCESSOR_INTERVAL_MINUTES=5
+PENDING_PROCESSOR_MAX_ATTEMPTS=3
 ```
 
 Si esa variable no esta definida, el bot busca o crea una carpeta llamada:
@@ -309,7 +311,11 @@ uploaded
 failed
 ```
 
-Esta fase no procesa pendientes automaticamente. Una fase futura debe copiar o mover pendientes a `Entrantes/<Grupo>/<MM-YYYY>/<DD>/` y solo borrar el pendiente cuando la subida final este confirmada. El bot no marca el mensaje como procesado final al encolarlo; queda pendiente hasta que una fase posterior lo deje en `Entrantes`.
+Cuando el bot llega a `ready`, inicia un procesador de pendientes. El procesador corre solo dentro del horario operativo: hace una corrida inmediata al arrancar y luego reintenta cada `PENDING_PROCESSOR_INTERVAL_MINUTES`, por defecto `5`. Si el bot esta fuera de horario, no procesa pendientes y los conserva.
+
+El procesador revisa solamente la subcarpeta pendiente del dia operativo actual. Para cada archivo `queued` o `failed` con menos de `PENDING_PROCESSOR_MAX_ATTEMPTS` intentos, marca estado `processing`, lo copia dentro de `Entrantes/<Grupo>/<MM-YYYY>/<DD>/` con el naming final `<ID>_<HHmm>_<TAG>.<ext>`, marca el mensaje como procesado solo despues de confirmar la copia final, marca el pendiente como `uploaded` y recien entonces elimina el archivo pendiente.
+
+Si falla algun paso, el archivo pendiente no se borra, no se marca como procesado final y se actualiza su metadata a `failed` con intentos/error sanitizado. La carpeta diaria pendiente solo se elimina si queda realmente vacia.
 
 Para bloquear procesamiento sin cambiar codigo:
 

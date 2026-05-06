@@ -168,6 +168,10 @@ function loadConfig() {
       maxItems: getPositiveNumber('PROCESSED_STORE_MAX_ITEMS', 5000),
       timeZone: normalizeTimeZone(process.env.BOT_TIME_ZONE || DEFAULT_TIME_ZONE),
     },
+    pendingProcessor: {
+      intervalMinutes: getPositiveNumber('PENDING_PROCESSOR_INTERVAL_MINUTES', 5),
+      maxAttempts: getPositiveNumber('PENDING_PROCESSOR_MAX_ATTEMPTS', 3),
+    },
     google: {
       driveFolderId: process.env.GOOGLE_DRIVE_FOLDER_ID || fileConfig.driveFolderId,
       pendingFolderId: process.env.GOOGLE_DRIVE_PENDING_FOLDER_ID || undefined,

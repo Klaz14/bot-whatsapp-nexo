@@ -52,6 +52,9 @@ Este proyecto es un bot Node.js standalone que escucha grupos permitidos de What
 - Implementar cola de pendientes de Drive por fases; no activar encolado/procesamiento desde WhatsApp en una fase de helpers.
 - El encolado fuera de horario puede descargar y subir a pendientes, pero no debe subir a `Entrantes` ni marcar `processed` final.
 - No implementar processor automatico de pendientes en la misma fase que activa el encolado, salvo instruccion explicita.
+- El processor de pendientes debe correr solo dentro de horario operativo, despues de `ready`, sin bloquear ni alterar la inicializacion de WhatsApp.
+- El processor debe copiar a `Entrantes` y confirmar exito antes de marcar `processed`, marcar `uploaded` o borrar el pendiente.
+- Si falla el procesamiento de un pendiente, conservar el archivo y marcar estado `failed` con error sanitizado.
 - No versionar `blocked-senders.json`; mantener solo `blocked-senders.example.json` como ejemplo versionado.
 - No loguear telefonos completos al aplicar blacklist de remitentes.
 - `BLACKLIST_DEBUG_FULL_SENDER` es solo para diagnostico local temporal; no tratarlo como operacion normal ni copiar salidas con numeros completos o LID reales a reportes o commits.

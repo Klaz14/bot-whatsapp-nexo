@@ -184,10 +184,29 @@ async function findOrCreatePendingRootFolder(drive, options = {}) {
     || createFolder(drive, options.parentFolderId, folderName);
 }
 
+async function findPendingRootFolder(drive, options = {}) {
+  if (options.pendingFolderId) {
+    return {
+      id: options.pendingFolderId,
+      name: options.pendingRootName || DEFAULT_PENDING_ROOT_NAME,
+    };
+  }
+
+  if (!options.parentFolderId) return null;
+
+  const folderName = sanitizeDriveFolderName(options.pendingRootName || DEFAULT_PENDING_ROOT_NAME, 'pendientes');
+  return findFolderByName(drive, options.parentFolderId, folderName);
+}
+
 async function findOrCreatePendingDayFolder(drive, rootFolderId, operationalDate, timeZone) {
   const folderName = buildPendingFolderName(operationalDate, timeZone);
   return await findFolderByName(drive, rootFolderId, folderName)
     || createFolder(drive, rootFolderId, folderName);
+}
+
+async function findPendingDayFolder(drive, rootFolderId, operationalDate, timeZone) {
+  const folderName = buildPendingFolderName(operationalDate, timeZone);
+  return findFolderByName(drive, rootFolderId, folderName);
 }
 
 async function createPendingFile(drive, options = {}) {
@@ -229,9 +248,32 @@ async function listPendingFilesForDate(drive, pendingDayFolderId) {
         'trashed = false',
         `appProperties has { key='app' and value='${APP_NAME}' }`,
         `appProperties has { key='type' and value='${PENDING_TYPE}' }`,
-        "appProperties has { key='pendingStatus' and value='queued' }",
       ].join(' and '),
       fields: 'nextPageToken, files(id, name, mimeType, appProperties, createdTime)',
+      pageSize: 1000,
+      pageToken,
+      supportsAllDrives: true,
+      includeItemsFromAllDrives: true,
+    });
+
+    files.push(...(res.data.files || []));
+    pageToken = res.data.nextPageToken;
+  } while (pageToken);
+
+  return files;
+}
+
+async function listFilesInFolder(drive, folderId) {
+  const files = [];
+  let pageToken;
+
+  do {
+    const res = await drive.files.list({
+      q: [
+        `'${escapeDriveQueryString(folderId)}' in parents`,
+        'trashed = false',
+      ].join(' and '),
+      fields: 'nextPageToken, files(id, name, mimeType, appProperties)',
       pageSize: 1000,
       pageToken,
       supportsAllDrives: true,
@@ -311,6 +353,13 @@ async function deletePendingFile(drive, fileId) {
   });
 }
 
+async function deletePendingFolder(drive, folderId) {
+  await drive.files.delete({
+    fileId: folderId,
+    supportsAllDrives: true,
+  });
+}
+
 module.exports = {
   APP_NAME,
   DEFAULT_PENDING_ROOT_NAME,
@@ -323,11 +372,15 @@ module.exports = {
   buildPendingFolderName,
   createPendingFile,
   deletePendingFile,
+  deletePendingFolder,
   findPendingFileByMessageKey,
   findPendingFileByMessageKeyGlobal,
+  findPendingDayFolder,
+  findPendingRootFolder,
   findOrCreatePendingDayFolder,
   findOrCreatePendingRootFolder,
   isPendingStatusQueued,
+  listFilesInFolder,
   listPendingFilesForDate,
   markPendingStatus,
   parsePendingAppProperties,

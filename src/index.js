@@ -4,6 +4,7 @@ const { createDriveService } = require('./services/driveService');
 const { createLogService } = require('./services/logService');
 const { createProcessedStore } = require('./services/processedStore');
 const { createWhatsappClient } = require('./services/whatsappClient');
+const { createPendingProcessor } = require('./services/pendingProcessor');
 const { createMessageHandler } = require('./handlers/messageHandler');
 const { maskSensitiveText } = require('./utils/mask');
 
@@ -12,6 +13,7 @@ function startBot() {
   const driveService = createDriveService(config);
   const logService = createLogService(config);
   const processedStore = createProcessedStore(config);
+  const pendingProcessor = createPendingProcessor({ config, driveService, processedStore });
   const client = createWhatsappClient(config);
   let ready = false;
   let readyDiagnosticTimer;
@@ -61,6 +63,7 @@ function startBot() {
       console.log(`  - "${name}" -> tag "${tag}"`);
     }
     console.log(`Carpeta destino de Drive: ${maskSensitiveText(config.google.driveFolderId)}\n`);
+    pendingProcessor.start();
   });
 
   client.on('disconnected', (reason) => {
