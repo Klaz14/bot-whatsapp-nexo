@@ -16,3 +16,4 @@ processed-messages.json
 processed-messages*.json
 blocked-senders.json
 business-calendar.json
+NEKO_LOG.md

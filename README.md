@@ -19,27 +19,50 @@ bot-whatsapp-drive/
   auth.js
   src/
     index.js
-    auth/googleOAuth.js
-    config/env.js
-    config/paths.js
-    handlers/messageHandler.js
-    services/driveService.js
-    services/logService.js
-    services/processedStore.js
-    services/whatsappClient.js
-    utils/fileNames.js
-    utils/mask.js
-    utils/mime.js
-    utils/sanitize.js
-  config.json
-  config.example.json
+    auth/
+      googleOAuth.js
+    config/
+      env.js
+      paths.js
+    handlers/
+      messageHandler.js
+    services/
+      blockedSenders.js
+      driveService.js
+      logService.js
+      operationalNotifier.js
+      pendingAuditService.js
+      pendingDriveService.js
+      pendingProcessor.js
+      processedStore.js
+      whatsappClient.js
+    utils/
+      businessCalendar.js
+      fileNames.js
+      mask.js
+      mime.js
+      sanitize.js
+      time.js
+  scripts/
+    audit-pendientes.js
+    setup-drive-folder.js
+  .dockerignore
   .env.example
+  .gitignore
+  blocked-senders.example.json
+  business-calendar.example.json
+  config.example.json
+  config.json
   AGENTS.md
+  CLAUDE.md
+  DEPLOYMENT.md
+  Dockerfile
+  README.md
   package.json
   package-lock.json
 ```
 
-Archivos locales sensibles como `credentials.json`, `token.json`, `.wwebjs_auth/`, `.wwebjs_cache/`, `uploads.log`, `errors.log` y `.env` estan ignorados por Git.
+Archivos locales sensibles como `credentials.json`, `credentials.service-account.json.bak`, `token.json`, `.wwebjs_auth/`, `.wwebjs_cache/`, `uploads.log`, `errors.log`, `start-debug.log`, `blocked-senders.json`, `business-calendar.json`, `processed-messages.json`, `NEKO_LOG.md` y `.env` estan ignorados por Git.
 
 ## Instalacion
 

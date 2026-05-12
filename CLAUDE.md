@@ -11,7 +11,7 @@ Este archivo complementa a `AGENTS.md` con la identidad del proyecto, el mapa ar
 ## 2. Identidad del proyecto
 
 - **Codename:** `ruben-botta-el-renacido`
-- **WhatsApp profile name:** Ruben Botta El Renacido
+- **WhatsApp profile name:** Rubén Botta LA RESURRECCIÓN
 - **Relación con el bot anterior:** reemplazo completo del bot `bot-whatsapp-drive` original. Mismo repositorio, misma estructura de código. Las credenciales Google y el token OAuth se renuevan por completo (nuevos `credentials.json` y `token.json`).
 - **Carpeta Drive raíz:** se reutiliza la carpeta `Entrantes` existente (`GOOGLE_DRIVE_FOLDER_ID` se mantiene sin cambios).
 
@@ -134,6 +134,7 @@ node scripts/auditPendingTransfers.js   # auditoría read-only de pendientes en 
 - **`folderCache` sin TTL:** el cache en memoria de IDs de carpetas Drive no expira. Si una carpeta es movida o eliminada manualmente en Drive durante la operación, el bot puede fallar hasta reiniciar.
 - **README.md con estructura desactualizada:** la sección `## Estructura` no refleja los archivos actuales del proyecto (faltan módulos agregados en fases posteriores).
 - **Pendientes de días anteriores no procesados automáticamente:** `pendingProcessor` solo revisa la subcarpeta del día operativo actual; días previos quedan sin procesar si el bot estuvo apagado.
+- **Técnica operativa de pausa de servicio (Railway):** durante la era V1, se usaba `tail -f /dev/null` como Custom Start Command en Railway para mantener el container "Online" sin ejecutar el bot. Es útil como técnica de mantenimiento (acceso por SSH al volume sin que el bot interfiera), pero NUNCA debe quedar como default — impide arranque normal. Si se aplica temporalmente, **acordate de limpiarlo antes de hacer redeploy productivo.**
 
 ---
 
