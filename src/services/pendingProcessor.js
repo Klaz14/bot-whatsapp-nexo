@@ -1,6 +1,5 @@
-const { buildPendingFolderName, parsePendingAppProperties } = require('./pendingDriveService');
+const { parsePendingAppProperties } = require('./pendingDriveService');
 const {
-  getOperationalDateForMessage,
   isWithinBusinessHours,
   loadBusinessCalendar,
 } = require('../utils/businessCalendar');
@@ -195,9 +194,7 @@ async function processPendingForOperationalDate({
     };
   }
 
-  const operationalDate = getOperationalDateForMessage(now, activeCalendar);
-  const folderName = buildPendingFolderName(operationalDate, activeCalendar.timeZone);
-  console.log(`[PENDING PROCESSOR] processing ${folderName}`);
+  console.log('[PENDING PROCESSOR] procesando pendientes acumulados');
   if (!config.google.pendingFolderId) {
     notifySafely(
       operationalNotifier,
@@ -209,23 +206,17 @@ async function processPendingForOperationalDate({
     );
   }
 
-  const { folder, files } = await driveService.listPendingForOperationalDate(operationalDate);
+  const { folder, files } = await driveService.listAllPendingFiles();
   const retryableFiles = files.filter((file) => {
     const metadata = parsePendingAppProperties(file.appProperties);
     return isPendingRetryable(metadata, config.pendingProcessor.maxAttempts);
   });
 
   if (!folder || retryableFiles.length === 0) {
-    const cleaned = folder ? await driveService.cleanupEmptyPendingDayFolder(folder) : false;
-    if (cleaned) {
-      console.log(`[PENDING CLEANUP] removed empty folder ${folderName}`);
-    }
     return {
       skipped: false,
       processed: 0,
       failed: 0,
-      folderName,
-      cleaned,
     };
   }
 
@@ -244,7 +235,7 @@ async function processPendingForOperationalDate({
       if (result.skipped) {
         console.log(`[PENDING OK] duplicate already processed -> ${maskSensitiveText(result.fileName, 120)}`);
       } else {
-        console.log(`[PENDING OK] ${folderName} -> ${result.folderPath}/${result.finalFilename}`);
+        console.log(`[PENDING OK] ${result.folderPath}/${result.finalFilename}`);
       }
     } else {
       failed += 1;
@@ -252,17 +243,10 @@ async function processPendingForOperationalDate({
     }
   }
 
-  const cleaned = await driveService.cleanupEmptyPendingDayFolder(folder);
-  if (cleaned) {
-    console.log(`[PENDING CLEANUP] removed empty folder ${folderName}`);
-  }
-
   return {
     skipped: false,
     processed,
     failed,
-    folderName,
-    cleaned,
   };
 }
 

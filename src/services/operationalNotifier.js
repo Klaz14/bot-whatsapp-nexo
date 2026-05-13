@@ -8,6 +8,7 @@ const OPERATIONAL_MESSAGES = {
   readyBusinessHours: '✅ Bot preparado para trabajar. Horario operativo activo. Los comprobantes se procesarán en Entrantes.',
   readyOffHours: '🌙 Bot activo fuera de horario. Desde ahora los comprobantes quedan en lista de pendientes y se procesarán al comienzo del siguiente día hábil.',
   offHoursStarted: '🌙 Fin del horario operativo. Desde ahora los comprobantes quedan en lista de pendientes y se procesarán al comienzo del siguiente día hábil.',
+  onHoursStarted: '🌞 Inicio del horario operativo. El bot va a procesar los comprobantes acumulados (si hay) y volver a recibir comprobantes en tiempo real.',
   manualShutdown: '⚠️ Bot detenido manualmente. Si se reciben comprobantes mientras está apagado, no podrán ser capturados hasta que vuelva a iniciar.',
 };
 
@@ -297,8 +298,9 @@ function createOperationalNotifier({
       return notify('offHoursStarted', { stateKey: 'transition:off-hours' });
     }
 
-    if (insideBusinessHours) {
+    if (!wasInside && insideBusinessHours) {
       lastStateMessageKey = '';
+      return notify('onHoursStarted', { stateKey: 'transition:on-hours' });
     }
 
     return { ok: false, reason: 'no-transition' };

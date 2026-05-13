@@ -1,7 +1,7 @@
 const { extFromMime } = require('./mime');
 const { maskSenderForFilename } = require('./mask');
 const { sanitizeExtension, sanitizeTag } = require('./sanitize');
-const { formatLocalTimeForFilename } = require('./time');
+const { formatLocalDayMonthForFilename, formatLocalTimeForFilename } = require('./time');
 
 function timestamp() {
   const d = new Date();
@@ -18,10 +18,11 @@ function buildUploadFilename(tag, senderId, media) {
 
 function buildSequentialUploadFilename({ id, date, tag, media, timeZone }) {
   const safeId = Number.isInteger(id) && id > 0 ? id : 1;
+  const dayMonth = formatLocalDayMonthForFilename(date, timeZone);
   const time = formatLocalTimeForFilename(date, timeZone);
   const safeTag = sanitizeTag(tag);
   const ext = sanitizeExtension(extFromMime(media && media.mimetype, media && media.filename));
-  return `${safeId}_${time}_${safeTag}.${ext}`;
+  return `${safeId}_${dayMonth}_${time}_${safeTag}.${ext}`;
 }
 
 module.exports = {

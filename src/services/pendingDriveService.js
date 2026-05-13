@@ -198,15 +198,12 @@ async function findPendingRootFolder(drive, options = {}) {
   return findFolderByName(drive, options.parentFolderId, folderName);
 }
 
-async function findOrCreatePendingDayFolder(drive, rootFolderId, operationalDate, timeZone) {
-  const folderName = buildPendingFolderName(operationalDate, timeZone);
-  return await findFolderByName(drive, rootFolderId, folderName)
-    || createFolder(drive, rootFolderId, folderName);
+async function findOrCreatePendingDayFolder(drive, rootFolderId) {
+  return { id: rootFolderId };
 }
 
-async function findPendingDayFolder(drive, rootFolderId, operationalDate, timeZone) {
-  const folderName = buildPendingFolderName(operationalDate, timeZone);
-  return findFolderByName(drive, rootFolderId, folderName);
+async function findPendingDayFolder(drive, rootFolderId) {
+  return { id: rootFolderId };
 }
 
 async function createPendingFile(drive, options = {}) {

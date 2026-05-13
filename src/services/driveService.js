@@ -2,21 +2,16 @@ const fs = require('fs');
 const { Readable } = require('stream');
 const { google } = require('googleapis');
 const { maskSensitiveText } = require('../utils/mask');
-const { sanitizeDriveFolderName } = require('../utils/sanitize');
 const { buildSequentialUploadFilename } = require('../utils/fileNames');
 const {
-  formatLocalDayForDriveFolder,
-  formatLocalMonthForDriveFolder,
+  formatLocalDateForPendingFolder,
 } = require('../utils/time');
 const {
   DEFAULT_PENDING_ROOT_NAME,
   buildPendingFileName,
-  buildPendingFolderName,
   createPendingFile,
   deletePendingFile,
   deletePendingFolder,
-  findPendingDayFolder,
-  findOrCreatePendingDayFolder,
   findOrCreatePendingRootFolder,
   findPendingFileByMessageKeyGlobal,
   findPendingRootFolder,
@@ -27,7 +22,7 @@ const {
 } = require('./pendingDriveService');
 
 const DRIVE_FOLDER_MIME = 'application/vnd.google-apps.folder';
-const SEQUENTIAL_UPLOAD_FILENAME_RE = /^(\d+)_([01]\d|2[0-3])([0-5]\d)_[A-Za-z0-9][A-Za-z0-9_-]*\.[A-Za-z0-9]+$/;
+const SEQUENTIAL_UPLOAD_FILENAME_RE = /^(\d+)_(\d{4})_([01]\d|2[0-3])([0-5]\d)_[A-Za-z0-9][A-Za-z0-9_-]*\.[A-Za-z0-9]+$/;
 
 function assertDriveConfig(config) {
   if (!config.google.driveFolderId || config.google.driveFolderId === 'YYY') {
@@ -49,16 +44,11 @@ function escapeDriveQueryString(value) {
   return String(value || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
-function buildDriveFolderPath(groupName, date, timeZone) {
-  const groupFolderName = sanitizeDriveFolderName(groupName, 'grupo');
-  const monthFolderName = formatLocalMonthForDriveFolder(date, timeZone);
-  const dayFolderName = formatLocalDayForDriveFolder(date, timeZone);
-
+function buildDriveFolderPath(date, timeZone) {
+  const dayFolderName = formatLocalDateForPendingFolder(date, timeZone);
   return {
-    groupFolderName,
-    monthFolderName,
     dayFolderName,
-    logicalPath: `${groupFolderName}/${monthFolderName}/${dayFolderName}`,
+    logicalPath: dayFolderName,
   };
 }
 
@@ -170,7 +160,7 @@ function createDriveService(config) {
 
   async function resolveUploadFolder(options = {}) {
     const date = options.date instanceof Date ? options.date : new Date();
-    const folderPath = buildDriveFolderPath(options.groupName, date, config.timeZone);
+    const folderPath = buildDriveFolderPath(date, config.timeZone);
 
     if (config.dryRun || !config.safety.allowRealDriveUploads) {
       return {
@@ -179,9 +169,7 @@ function createDriveService(config) {
       };
     }
 
-    const groupFolder = await getOrCreateFolder(config.google.driveFolderId, folderPath.groupFolderName);
-    const monthFolder = await getOrCreateFolder(groupFolder.id, folderPath.monthFolderName);
-    const dayFolder = await getOrCreateFolder(monthFolder.id, folderPath.dayFolderName);
+    const dayFolder = await getOrCreateFolder(config.google.driveFolderId, folderPath.dayFolderName);
 
     return {
       id: dayFolder.id,
@@ -270,7 +258,7 @@ function createDriveService(config) {
     }
 
     if (config.dryRun || !config.safety.allowRealDriveUploads) {
-      const folderPath = buildDriveFolderPath(options.groupName, options.date || new Date(), config.timeZone);
+      const folderPath = buildDriveFolderPath(options.date || new Date(), config.timeZone);
       const filenameInfo = await buildFilenameForUploadFolder({ id: config.google.driveFolderId }, mime, {
         ...options,
         filename,
@@ -329,16 +317,14 @@ function createDriveService(config) {
     throw lastErr;
   }
 
-  async function resolvePendingDayFolder(operationalDate, options = {}) {
-    const date = operationalDate instanceof Date ? operationalDate : new Date();
-    const folderName = buildPendingFolderName(date, config.timeZone);
+  async function resolvePendingRootFolder(options = {}) {
     const createIfMissing = options.create !== false;
 
     if (config.dryRun || !config.safety.allowRealDriveUploads) {
       return {
         id: config.google.pendingFolderId || config.google.driveFolderId,
-        name: folderName,
-        folderPath: `${DEFAULT_PENDING_ROOT_NAME}/${folderName}`,
+        name: DEFAULT_PENDING_ROOT_NAME,
+        folderPath: DEFAULT_PENDING_ROOT_NAME,
       };
     }
 
@@ -352,15 +338,10 @@ function createDriveService(config) {
       : await findPendingRootFolder(drive, rootOptions);
     if (!rootFolder) return null;
 
-    const dayFolder = createIfMissing
-      ? await findOrCreatePendingDayFolder(drive, rootFolder.id, date, config.timeZone)
-      : await findPendingDayFolder(drive, rootFolder.id, date, config.timeZone);
-    if (!dayFolder) return null;
-
     return {
-      id: dayFolder.id,
-      name: dayFolder.name || folderName,
-      folderPath: `${rootFolder.name || DEFAULT_PENDING_ROOT_NAME}/${dayFolder.name || folderName}`,
+      id: rootFolder.id,
+      name: rootFolder.name || DEFAULT_PENDING_ROOT_NAME,
+      folderPath: rootFolder.name || DEFAULT_PENDING_ROOT_NAME,
     };
   }
 
@@ -377,7 +358,7 @@ function createDriveService(config) {
   }
 
   async function createPendingUpload(options = {}) {
-    const pendingDayFolder = await resolvePendingDayFolder(options.operationalDate, { create: true });
+    const pendingRootFolder = await resolvePendingRootFolder({ create: true });
 
     if (config.dryRun || !config.safety.allowRealDriveUploads) {
       return {
@@ -391,25 +372,25 @@ function createDriveService(config) {
           timeZone: config.timeZone,
         }),
         appProperties: options.metadata || {},
-        folderPath: pendingDayFolder.folderPath,
+        folderPath: pendingRootFolder.folderPath,
       };
     }
 
     const file = await createPendingFile(drive, {
       ...options,
-      pendingDayFolderId: pendingDayFolder.id,
+      pendingDayFolderId: pendingRootFolder.id,
       timeZone: config.timeZone,
     });
 
     return {
       ...file,
-      folderPath: pendingDayFolder.folderPath,
+      folderPath: pendingRootFolder.folderPath,
     };
   }
 
-  async function listPendingForOperationalDate(operationalDate) {
-    const pendingDayFolder = await resolvePendingDayFolder(operationalDate, { create: false });
-    if (!pendingDayFolder) {
+  async function listAllPendingFiles() {
+    const pendingRootFolder = await resolvePendingRootFolder({ create: false });
+    if (!pendingRootFolder) {
       return {
         folder: null,
         files: [],
@@ -418,25 +399,23 @@ function createDriveService(config) {
 
     if (config.dryRun || !config.safety.allowRealDriveUploads) {
       return {
-        folder: pendingDayFolder,
+        folder: pendingRootFolder,
         files: [],
       };
     }
 
     return {
-      folder: pendingDayFolder,
-      files: await listPendingFilesForDate(drive, pendingDayFolder.id),
+      folder: pendingRootFolder,
+      files: await listPendingFilesForDate(drive, pendingRootFolder.id),
     };
   }
 
   async function copyPendingToEntrantes(pendingFile) {
     const metadata = parsePendingAppProperties(pendingFile && pendingFile.appProperties);
-    const operationalDate = dateFromOperationalDate(metadata.operationalDate);
     const messageDate = dateFromPendingMetadata(metadata);
     const mime = metadata.mimeType || pendingFile.mimeType;
     const uploadFolder = await resolveUploadFolder({
-      groupName: metadata.groupFolderName,
-      date: operationalDate,
+      date: new Date(),
     });
 
     if (config.dryRun || !config.safety.allowRealDriveUploads) {
@@ -493,12 +472,8 @@ function createDriveService(config) {
     await deletePendingFile(drive, fileId);
   }
 
-  async function cleanupEmptyPendingDayFolder(folder) {
-    if (!folder || config.dryRun || !config.safety.allowRealDriveUploads) return false;
-    const remaining = await listFilesInFolder(drive, folder.id);
-    if (remaining.length > 0) return false;
-    await deletePendingFolder(drive, folder.id);
-    return true;
+  async function cleanupEmptyPendingDayFolder() {
+    return false;
   }
 
   return {
@@ -507,10 +482,10 @@ function createDriveService(config) {
     copyPendingToEntrantes,
     deletePendingUpload,
     findPendingByMessageKey,
-    listPendingForOperationalDate,
+    listAllPendingFiles,
     markPendingUploadStatus,
     resolveUploadFolder,
-    resolvePendingDayFolder,
+    resolvePendingRootFolder,
     uploadWithRetry,
   };
 }

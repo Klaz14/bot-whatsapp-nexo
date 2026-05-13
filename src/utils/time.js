@@ -90,11 +90,17 @@ function formatLocalTimeForFilename(date = new Date(), timeZone = DEFAULT_TIME_Z
   return `${values.hour}${values.minute}`;
 }
 
+function formatLocalDayMonthForFilename(date = new Date(), timeZone = DEFAULT_TIME_ZONE) {
+  const values = getLocalDateParts(date, timeZone);
+  return `${values.day}${values.month}`;
+}
+
 module.exports = {
   DEFAULT_TIME_ZONE,
   buildAuditTime,
   formatLocalDateForPendingFolder,
   formatLocalDayForDriveFolder,
+  formatLocalDayMonthForFilename,
   formatLocalMonthForDriveFolder,
   formatLocalTimeForFilename,
   normalizeTimeZone,
