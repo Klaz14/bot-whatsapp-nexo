@@ -44,10 +44,10 @@ Este proyecto es un bot Node.js standalone que escucha grupos permitidos de What
 - Mantener validacion de `state` en el flujo OAuth local.
 - No cambiar scopes OAuth sin una fase explicita y documentada.
 - Si cambia OAuth o sus envs, actualizar `README.md` y `.env.example`.
-- Mantener la organizacion de comprobantes en Drive como `Entrantes/<NombreGrupoSanitizado>/<MM-YYYY>/<DD>/archivo` salvo fase explicita.
-- Mantener el naming de comprobantes como `<ID>_<HHmm>_<TAG>.<ext>` salvo fase explicita; el ID debe ser diario por carpeta, no global.
+- Mantener la organizacion de comprobantes en Drive como archivos planos en `PULL TRANSFERENCIAS/` (sin subcarpetas por grupo ni fecha; grupo identificado por TAG en filename) salvo fase explicita.
+- Mantener el naming de comprobantes como `<ID>_<DDMM>_<HHmm>_<TAG>.<ext>` salvo fase explicita; el ID es incremental por día calendario, resetea con cada nuevo día.
 - No reemplazar el ID diario por un contador global ni por un contador solo en memoria.
-- No ampliar el patron de secuencia a `^\d+_`; contar solo archivos que cumplan el formato completo del bot `<ID>_<HHmm>_<TAG>.<ext>`.
+- No ampliar el patron de secuencia a `^\d+_`; contar solo archivos que cumplan el formato completo del bot `<ID>_<DDMM>_<HHmm>_<TAG>.<ext>`.
 - No crear carpetas reales en Drive durante auditorias o validaciones automaticas.
 - No loguear IDs completos de carpetas, links completos de Drive ni rutas privadas; usar ruta logica sanitizada cuando haga falta.
 - No tocar `config.json` real sin autorizacion explicita; la carpeta raiz operativa debe configurarse localmente.
@@ -56,18 +56,16 @@ Este proyecto es un bot Node.js standalone que escucha grupos permitidos de What
 - No consultar APIs externas de feriados sin una fase explicita y documentada.
 - No tocar arranque de WhatsApp para logica de horario operativo o calendario laboral.
 - No versionar `business-calendar.json` si contiene calendario operativo local.
-- En futuras fases de pendientes fuera de horario, preservar idempotencia y no marcar `processed` final hasta que el archivo quede subido a `Entrantes`.
+- En pendientes, preservar idempotencia y no marcar `processed` final hasta que el archivo quede subido a `PULL TRANSFERENCIAS/`.
 - La metadata de pendientes en Drive debe usar `appProperties` seguras; no guardar telefonos completos, LID completos, links ni payloads.
-- No borrar archivos pendientes ni carpetas de pendientes hasta confirmar la subida final a `Entrantes`.
-- Implementar cola de pendientes de Drive por fases; no activar encolado/procesamiento desde WhatsApp en una fase de helpers.
+- No borrar archivos pendientes hasta confirmar la subida final a `Entrantes`.
 - El encolado fuera de horario puede descargar y subir a pendientes, pero no debe subir a `Entrantes` ni marcar `processed` final.
-- No implementar processor automatico de pendientes en la misma fase que activa el encolado, salvo instruccion explicita.
 - El processor de pendientes debe correr solo dentro de horario operativo, despues de `ready`, sin bloquear ni alterar la inicializacion de WhatsApp.
-- El processor debe copiar a `Entrantes` y confirmar exito antes de marcar `processed`, marcar `uploaded` o borrar el pendiente.
+- El processor debe copiar a `PULL TRANSFERENCIAS/` con naming `<ID>_<DDMM>_<HHmm>_<TAG>.<ext>` y confirmar exito antes de marcar `processed`, marcar `uploaded` o borrar el pendiente.
 - Si falla el procesamiento de un pendiente, conservar el archivo y marcar estado `failed` con error sanitizado.
 - El grupo original del pendiente debe conservarse como `groupFolderName` o equivalente seguro; el `tag` no debe ser la unica fuente para decidir carpeta final.
-- En pendientes, usar el grupo original sanitizado para la carpeta de `Entrantes` y el `tag` solo para el filename.
-- Las auditorias de pendientes deben ser read-only salvo fase explicita; no borrar, mover, copiar ni cambiar `appProperties`.
+- En pendientes, usar el grupo original sanitizado para la carpeta de `Entrantes` y el `tag` solo para el filename. El `DDMM` del filename se calcula del timestamp original del mensaje.
+- Las auditorias de pendientes deben ser read-only salvo fase explicita; no borrar, mover, copiar ni cambiar `appProperties`. Con estructura flat de pendientes, verificar que no queden archivos huérfanos en Drive que no se procesen.
 - No imprimir IDs completos de Drive, links, telefonos, LID ni payloads al auditar pendientes.
 - No modificar metadata de pendientes manualmente sin instruccion explicita.
 - No tocar `ready`, `whatsappClient.js` ni arranque de WhatsApp para tareas de auditoria de pendientes.
@@ -76,6 +74,8 @@ Este proyecto es un bot Node.js standalone que escucha grupos permitidos de What
 - Las notificaciones operativas no deben bloquear `ready`, no deben tocar `whatsappClient.js` y no deben enviar telefonos completos, LID completos, links completos, tokens, IDs crudos ni payloads.
 - Las notificaciones a multiples grupos deben manejar errores por grupo: si un destino falta o falla, continuar con los demas y loguear solo datos seguros.
 - `WHATSAPP_ALERT_GROUPS_JSON` debe mantener compatibilidad con `WHATSAPP_ALERT_GROUP_NAME` como fallback y no debe romper arranque si el JSON es invalido.
+- `WHATSAPP_STATUS_GROUPS_JSON` es separado de alert groups desde V0.5; si no se define, usa alert groups como fallback para mensajes de estado.
+- Los mensajes de estado operativo (`✅ ready`, `🌙 fuera de horario`, `🌞 inicio de horario`) se envian a status groups. Las alertas de error se envian a alert groups. Mantener esta separacion.
 - El aviso de apagado por `SIGINT`/`SIGTERM` es best-effort; no debe dejar el proceso colgado ni tocar sesion/cache.
 - Las alertas criticas deben cubrir errores operativos importantes sin notificar cada OK, duplicado, blacklist ignorado, comprobante recibido o corrida sin pendientes.
 - Los errores criticos no deben ocultarse por rate limit. Solo warnings repetidos de configuracion pueden deduplicarse para reducir ruido.

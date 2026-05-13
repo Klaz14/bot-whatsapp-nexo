@@ -11,6 +11,7 @@ Este archivo complementa a `AGENTS.md` con la identidad del proyecto, el mapa ar
 ## 2. Identidad del proyecto
 
 - **Codename:** `ruben-botta-el-renacido`
+- **Versión actual:** V0.6 (13/05/2026)
 - **WhatsApp profile name:** Rubén Botta LA RESURRECCIÓN
 - **Relación con el bot anterior:** reemplazo completo del bot `bot-whatsapp-drive` original. Mismo repositorio, misma estructura de código. Las credenciales Google y el token OAuth se renuevan por completo (nuevos `credentials.json` y `token.json`).
 - **Carpeta Drive raíz:** se reutiliza la carpeta `Entrantes` existente (`GOOGLE_DRIVE_FOLDER_ID` se mantiene sin cambios).
@@ -19,7 +20,7 @@ Este archivo complementa a `AGENTS.md` con la identidad del proyecto, el mapa ar
 
 ## 3. Visión general
 
-El bot escucha grupos de WhatsApp configurados y sube imágenes y PDFs a Google Drive, organizando los archivos en `Entrantes/<GrupoSanitizado>/<MM-YYYY>/<DD>/` con naming secuencial `<ID>_<HHmm>_<TAG>.<ext>`. No realiza OCR, IA ni validación semántica: cualquier imagen o PDF recibido en un grupo permitido se considera comprobante.
+El bot escucha grupos de WhatsApp configurados y sube imágenes y PDFs a Google Drive, organizando los archivos en `PULL TRANSFERENCIAS/` (raíz, sin subcarpetas por grupo) con naming secuencial `<ID>_<DDMM>_<HHmm>_<TAG>.<ext>`, donde el TAG identifica el grupo. No realiza OCR, IA ni validación semántica: cualquier imagen o PDF recibido en un grupo permitido se considera comprobante.
 
 Dentro del horario operativo (configurable vía `business-calendar.json`), los comprobantes se suben directamente a `Entrantes`. Fuera de horario, se encolan en una carpeta de pendientes en Drive con metadata en `appProperties`. Un procesador periódico, activo solo dentro de horario, mueve esos archivos a su destino final una vez que el bot retoma operación.
 
@@ -107,8 +108,8 @@ node scripts/auditPendingTransfers.js   # auditoría read-only de pendientes en 
 | Capability | Archivos candidatos |
 |---|---|
 | Cambiar lógica de horario operativo / días hábiles | `src/utils/businessCalendar.js`, `business-calendar.json` |
-| Cambiar formato o naming del archivo subido a Entrantes | `src/utils/fileNames.js`, `src/utils/mime.js`, `src/utils/sanitize.js` |
-| Cambiar estructura de carpetas en Drive (grupo/mes/día) | `src/services/driveService.js`, `src/utils/time.js` |
+| Cambiar formato o naming del archivo subido a Entrantes | `src/utils/fileNames.js`, `src/utils/mime.js`, `src/utils/sanitize.js`, `src/utils/time.js` |
+| Cambiar estructura de carpetas en Drive (estructura flat) | `src/services/driveService.js`, `src/services/pendingDriveService.js` |
 | Agregar o cambiar tipos de archivo aceptados | `src/utils/mime.js` (`ALLOWED_MIME`, `extFromMime`) |
 | Modificar blacklist de remitentes | `src/services/blockedSenders.js`, `blocked-senders.json` |
 | Cambiar política de idempotencia / deduplicación | `src/services/processedStore.js`, `src/handlers/messageHandler.js` |
@@ -133,7 +134,9 @@ node scripts/auditPendingTransfers.js   # auditoría read-only de pendientes en 
 - **Aliases redundantes en `businessCalendar.js`:** `shouldProcessNow` y `getPendingTargetDateForMessage` son wrappers exportados de funciones existentes, no usados por el código actual.
 - **`folderCache` sin TTL:** el cache en memoria de IDs de carpetas Drive no expira. Si una carpeta es movida o eliminada manualmente en Drive durante la operación, el bot puede fallar hasta reiniciar.
 - **README.md con estructura desactualizada:** la sección `## Estructura` no refleja los archivos actuales del proyecto (faltan módulos agregados en fases posteriores).
-- **Pendientes de días anteriores no procesados automáticamente:** `pendingProcessor` solo revisa la subcarpeta del día operativo actual; días previos quedan sin procesar si el bot estuvo apagado.
+- **Pendientes de días anteriores no procesados automáticamente:** `pendingProcessor` solo revisa la subcarpeta del día operativo actual; días previos quedan sin procesar si el bot estuvo apagado. En V0.6 este comportamiento se simplificó: `listAllPendingFiles()` no asume estructura de carpetas, por lo que pendientes huérfanos pueden quedar sin procesar si están fuera de la carpeta raiz esperada.
+- **SingletonLock sin protección en operaciones concurrentes:** la cache de IDs de carpetas Drive en `driveService.js` no tiene mecanismo de lock. Si múltiples instancias del bot intenten crear carpetas simultáneamente, el cache puede diverger del estado real en Drive.
+- **logicalPath "//" después de V0.6:** stub functions `buildDriveFolderPath()` y derivadas retornan `logicalPath: '/'` para indicar que no usan subfoldersahora. Algunos logs que intentan formatear esa ruta para debugging pueden mostrar barras dobles `//`. Sin impacto funcional, pero debe limpiarse en próxima fase.
 - **Técnica operativa de pausa de servicio (Railway):** durante la era V1, se usaba `tail -f /dev/null` como Custom Start Command en Railway para mantener el container "Online" sin ejecutar el bot. Es útil como técnica de mantenimiento (acceso por SSH al volume sin que el bot interfiera), pero NUNCA debe quedar como default — impide arranque normal. Si se aplica temporalmente, **acordate de limpiarlo antes de hacer redeploy productivo.**
 
 ---

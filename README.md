@@ -106,6 +106,7 @@ PROCESSED_STORE_TTL_HOURS=720
 PROCESSED_STORE_MAX_ITEMS=5000
 WHATSAPP_ALERT_GROUP_NAME=
 WHATSAPP_ALERT_GROUPS_JSON=[]
+WHATSAPP_STATUS_GROUPS_JSON=[]
 OPERATIONAL_NOTIFICATIONS_ENABLED=true
 OPERATIONAL_NOTIFY_ON_READY=true
 OPERATIONAL_NOTIFY_ON_OFF_HOURS=true
@@ -233,35 +234,38 @@ Cuando el bot esta listo, escucha mensajes de grupos configurados. Si el mensaje
 
 Para esta fase, toda imagen o PDF recibido en un grupo configurado se considera comprobante. No hay OCR, IA, reconocimiento visual, lectura bancaria ni validacion semantica del contenido.
 
-Los comprobantes se organizan dentro de la carpeta raiz configurada con esta estructura:
+Los comprobantes se organizan dentro de la carpeta raiz configurada (PULL TRANSFERENCIAS) con esta estructura (planos, sin subcarpetas por grupo ni fecha):
 
 ```text
-Entrantes/<NombreGrupoSanitizado>/<MM-YYYY>/<DD>/archivo
+PULL TRANSFERENCIAS/<ID>_<DDMM>_<HHmm>_<TAG>.<ext>
 ```
 
 Ejemplo:
 
 ```text
-Entrantes/BOT_TEST/05-2026/05/1_2243_BT.jpg
+PULL TRANSFERENCIAS/1_0505_2243_BT.jpg
 ```
 
-El nombre de carpeta del grupo se basa en el nombre real del grupo de WhatsApp sanitizado, no en el tag. Las carpetas de mes y dia usan fecha local operativa segun `BOT_TIME_ZONE`, por defecto `America/Argentina/Buenos_Aires`. El bot busca carpetas existentes antes de crear nuevas y mantiene una cache en memoria mientras el proceso corre.
+Todos los comprobantes se guardan planos en `PULL TRANSFERENCIAS/` sin subcarpetas. El grupo se identifica por el TAG incluido en el filename, no por estructura de carpetas. El bot escribe directamente en la carpeta raiz sin crear niveles adicionales.
 
-Dentro de cada carpeta diaria, los archivos se nombran con:
+Los archivos se nombran con:
 
 ```text
-<ID>_<HHmm>_<TAG>.<ext>
+<ID>_<DDMM>_<HHmm>_<TAG>.<ext>
 ```
 
 Ejemplos:
 
 ```text
-1_2243_BT.jpg
-2_2248_BT.pdf
-3_2252_BT.jpg
+1_0505_2243_BT.jpg
+2_0505_2248_BT.pdf
+3_0505_2252_BT.jpg
+1_0506_0915_BT.jpg
 ```
 
-El `ID` es incremental por carpeta diaria y vuelve a empezar en `1` cada dia. Para calcularlo, el bot lista los archivos existentes en la carpeta diaria y toma en cuenta solo nombres que cumplen el formato completo `<ID>_<HHmm>_<TAG>.<ext>`, con hora valida. Archivos manuales como `99_manual.pdf`, `152_comprobante.jpg` o `1_factura_cliente.pdf` se ignoran para evitar saltos artificiales en la secuencia. Si se sube manualmente un archivo con el formato exacto del bot, entonces si puede ocupar un ID valido. La hora `HHmm` sale del timestamp del mensaje de WhatsApp convertido con `BOT_TIME_ZONE`. El `TAG` sale del valor configurado para el grupo en `config.json.groups`. El filename no incluye telefonos, LID ni remitentes.
+El `ID` es incremental por día calendario (resetea cada día). Para calcularlo, el bot lista todos los archivos en `PULL TRANSFERENCIAS/` y toma en cuenta solo nombres que cumplen el formato completo `<ID>_<DDMM>_<HHmm>_<TAG>.<ext>`, con DDMM y hora valida. Dentro de un mismo día (mismo DDMM), el bot incrementa el ID. Archivos manuales o con formato parcial se ignoran para evitar saltos artificiales en la secuencia.
+
+El `DDMM` es el día-mes del mensaje original (fecha local según `BOT_TIME_ZONE`). La hora `HHmm` sale del timestamp del mensaje de WhatsApp. El `TAG` sale del valor configurado para el grupo en `config.json.groups` y permite identificar qué grupo originó el archivo. El filename no incluye telefonos, LID ni remitentes.
 
 ## Calendario laboral
 
@@ -312,13 +316,7 @@ Si esa variable no esta definida, el bot busca o crea una carpeta llamada:
 Archivos Pendientes por Fuera de Horario
 ```
 
-Dentro de esa carpeta, los pendientes se separan por fecha operativa con formato `DD-MM-YYYY`, por ejemplo:
-
-```text
-Archivos Pendientes por Fuera de Horario/06-05-2026/
-```
-
-Cada archivo pendiente usa un nombre temporal seguro, no final:
+Desde V0.6, los pendientes se guardan planos en esa carpeta raiz, sin subcarpetas por fecha. Cada archivo pendiente usa un nombre temporal seguro, no final:
 
 ```text
 pending_<HHmm>_<TAG>_<messageKeyShort>.<ext>
@@ -345,9 +343,9 @@ failed
 
 Cuando el bot llega a `ready`, inicia un procesador de pendientes. El procesador corre solo dentro del horario operativo: hace una corrida inmediata al arrancar y luego reintenta cada `PENDING_PROCESSOR_INTERVAL_MINUTES`, por defecto `5`. Si el bot esta fuera de horario, no procesa pendientes y los conserva.
 
-El procesador revisa solamente la subcarpeta pendiente del dia operativo actual. Para cada archivo `queued` o `failed` con menos de `PENDING_PROCESSOR_MAX_ATTEMPTS` intentos, marca estado `processing`, lo copia dentro de `Entrantes/<Grupo>/<MM-YYYY>/<DD>/` con el naming final `<ID>_<HHmm>_<TAG>.<ext>`, marca el mensaje como procesado solo despues de confirmar la copia final, marca el pendiente como `uploaded` y recien entonces elimina el archivo pendiente.
+El procesador lista todos los archivos pendientes en la carpeta raiz. Para cada archivo `queued` o `failed` con menos de `PENDING_PROCESSOR_MAX_ATTEMPTS` intentos, marca estado `processing`, lo copia dentro de `PULL TRANSFERENCIAS/` con el naming final `<ID>_<DDMM>_<HHmm>_<TAG>.<ext>`, marca el mensaje como procesado solo despues de confirmar la copia final, marca el pendiente como `uploaded` y recien entonces elimina el archivo pendiente.
 
-Si falla algun paso, el archivo pendiente no se borra, no se marca como procesado final y se actualiza su metadata a `failed` con intentos/error sanitizado. La carpeta diaria pendiente solo se elimina si queda realmente vacia.
+Si falla algun paso, el archivo pendiente no se borra, no se marca como procesado final y se actualiza su metadata a `failed` con intentos/error sanitizado.
 
 ### Auditoria de pendientes
 
@@ -357,10 +355,10 @@ Para revisar pendientes sin modificarlos, existe un script read-only:
 node scripts/auditPendingTransfers.js
 ```
 
-Ese comando no toca WhatsApp, no borra, no copia, no mueve y no modifica `appProperties`. Solo consulta Drive con las credenciales locales y muestra un resumen seguro por carpeta:
+Ese comando no toca WhatsApp, no borra, no copia, no mueve y no modifica `appProperties`. Solo consulta Drive con las credenciales locales y muestra un resumen seguro:
 
 ```text
-[PENDING AUDIT] folder 06-05-2026: 0 queued, 0 processing, 1 failed, 0 uploaded, 0 other
+[PENDING AUDIT] 0 queued, 0 processing, 1 failed, 0 uploaded, 0 other
 [PENDING AUDIT] failed pending_1820_BT_abcd1234.jpg attempts=3 operationalDate=2026-05-06 group=BOT_TEST tag=BT error="..."
 ```
 
@@ -383,6 +381,7 @@ Variables:
 ```env
 WHATSAPP_ALERT_GROUP_NAME=
 WHATSAPP_ALERT_GROUPS_JSON=[]
+WHATSAPP_STATUS_GROUPS_JSON=[]
 OPERATIONAL_NOTIFICATIONS_ENABLED=true
 OPERATIONAL_NOTIFY_ON_READY=true
 OPERATIONAL_NOTIFY_ON_OFF_HOURS=true
@@ -390,7 +389,7 @@ OPERATIONAL_NOTIFY_ON_SHUTDOWN=false
 OPERATIONAL_STATUS_CHECK_INTERVAL_SECONDS=60
 ```
 
-Para un unico grupo administrador, usar:
+Para un unico grupo administrador (alertas y estado), usar:
 
 ```env
 WHATSAPP_ALERT_GROUP_NAME=BOT ALERTAS
@@ -403,6 +402,15 @@ WHATSAPP_ALERT_GROUPS_JSON=["BOT ALERTAS","ADMIN TRANSFERENCIAS"]
 ```
 
 Si `WHATSAPP_ALERT_GROUPS_JSON` existe y es un JSON valido, tiene prioridad. Si no existe o es invalido, el bot usa `WHATSAPP_ALERT_GROUP_NAME` como fallback. Se ignoran strings vacios y nombres duplicados. Si no queda ningun grupo configurado, el bot solo deja el aviso en consola y no envia WhatsApp.
+
+Desde V0.5, se pueden separar los grupos que reciben mensajes operativos (ready, horarios) del grupo que recibe alertas de error:
+
+```env
+WHATSAPP_STATUS_GROUPS_JSON=["BOT OPERACIONES","BOT TEST"]
+WHATSAPP_ALERT_GROUPS_JSON=["BOT ALERTAS"]
+```
+
+Si `WHATSAPP_STATUS_GROUPS_JSON` no se define, el bot usa `WHATSAPP_ALERT_GROUPS_JSON` como fallback. Los mensajes de estado operativo (`✅ listo`, `🌙 fuera de horario`, `🌞 inicio de horario`) se envian a status groups. Las alertas de error (warnings, críticas) se envian a alert groups.
 
 Si un grupo configurado no existe o falla el envio a un destino, el bot registra un warning seguro y continua con los demas grupos. Un problema de notificacion no debe tumbar el proceso.
 
@@ -603,6 +611,7 @@ No ejecutar `npm start` ni `npm run auth` salvo instruccion explicita.
 - Si reaparecen duplicados, revisar que `processed-messages.json` exista, sea escribible y no haya sido borrado.
 - Si Puppeteer informa `Could not find Chrome`, ejecutar `npm run setup:chrome` o configurar `PUPPETEER_EXECUTABLE_PATH`.
 - Si queda en `Autenticado` y no llega a `Bot listo y escuchando`, observar los eventos `WhatsApp loading`, `WhatsApp state changed` y la advertencia de `WHATSAPP_READY_TIMEOUT_SECONDS`. No borrar `.wwebjs_auth/` ni `.wwebjs_cache/` como primera medida.
+- Si aparece error `SingletonLock` en logs, significa que Puppeteer o Chromium está siendo usado simultáneamente por múltiples procesos. Esto ocurre si se ejecutan dos o más instancias del bot al mismo tiempo. Solución: asegurarse de que solo hay una instancia del bot corriendo. Si se necesita múltiples instancias, requerirá arquitectura de cluster o múltiples máquinas con sesiones WhatsApp/cache separadas.
 
 ## Deploy y operacion
 
@@ -632,5 +641,5 @@ Solo con aprobacion:
 2. Confirmar que el grupo es de prueba.
 3. Ejecutar `npm start`.
 4. Enviar una imagen y un PDF al grupo de prueba.
-5. Confirmar subida a Drive dentro de `Entrantes/<Grupo>/<MM-YYYY>/<DD>/`.
+5. Confirmar subida a Drive dentro de `PULL TRANSFERENCIAS/` (buscar archivos con TAG correspondiente).
 6. Revisar logs sin compartir datos sensibles.
