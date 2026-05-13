@@ -4,7 +4,7 @@ const { google } = require('googleapis');
 const { maskSensitiveText } = require('../utils/mask');
 const { buildSequentialUploadFilename } = require('../utils/fileNames');
 const {
-  formatLocalDateForPendingFolder,
+  formatLocalDayMonthForFilename,
 } = require('../utils/time');
 const {
   DEFAULT_PENDING_ROOT_NAME,
@@ -44,12 +44,9 @@ function escapeDriveQueryString(value) {
   return String(value || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
-function buildDriveFolderPath(date, timeZone) {
-  const dayFolderName = formatLocalDateForPendingFolder(date, timeZone);
-  return {
-    dayFolderName,
-    logicalPath: dayFolderName,
-  };
+// V0.6: estructura plana — los archivos van directo a la raíz de Drive.
+function buildDriveFolderPath() {
+  return { logicalPath: '/' };
 }
 
 function extractSequentialIdFromName(name) {
@@ -60,9 +57,17 @@ function extractSequentialIdFromName(name) {
   return Number.isSafeInteger(id) && id > 0 ? id : null;
 }
 
-function getNextSequentialUploadId(fileNames) {
+// V0.6: ID por día via DDMM del filename. ddmm opcional — sin él, comportamiento legacy.
+// Listado simple: volumen esperado es decenas a cientos de archivos por día, sin paginación extra.
+function getNextSequentialUploadId(fileNames, ddmm) {
   const maxId = (fileNames || [])
-    .map((name) => extractSequentialIdFromName(name))
+    .map((name) => {
+      const match = SEQUENTIAL_UPLOAD_FILENAME_RE.exec(String(name || ''));
+      if (!match) return null;
+      if (ddmm && match[2] !== ddmm) return null;
+      const id = Number(match[1]);
+      return Number.isSafeInteger(id) && id > 0 ? id : null;
+    })
     .filter((id) => id !== null)
     .reduce((max, id) => Math.max(max, id), 0);
 
@@ -158,22 +163,11 @@ function createDriveService(config) {
     return folder;
   }
 
-  async function resolveUploadFolder(options = {}) {
-    const date = options.date instanceof Date ? options.date : new Date();
-    const folderPath = buildDriveFolderPath(date, config.timeZone);
-
-    if (config.dryRun || !config.safety.allowRealDriveUploads) {
-      return {
-        id: config.google.driveFolderId,
-        ...folderPath,
-      };
-    }
-
-    const dayFolder = await getOrCreateFolder(config.google.driveFolderId, folderPath.dayFolderName);
-
+  // V0.6: estructura plana — retorna la raíz directamente, sin subcarpeta.
+  async function resolveUploadFolder() {
     return {
-      id: dayFolder.id,
-      ...folderPath,
+      id: config.google.driveFolderId,
+      logicalPath: '/',
     };
   }
 
@@ -238,7 +232,8 @@ function createDriveService(config) {
     }
 
     const existingNames = await listFileNamesInFolder(uploadFolder.id);
-    const sequenceId = getNextSequentialUploadId(existingNames);
+    const ddmm = formatLocalDayMonthForFilename(options.date, config.timeZone);
+    const sequenceId = getNextSequentialUploadId(existingNames, ddmm);
     return {
       filename: buildSequentialUploadFilename({
         id: sequenceId,
