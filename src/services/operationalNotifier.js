@@ -139,6 +139,10 @@ function createOperationalNotifier({
     return normalizeAlertGroupNames(notifierConfig.alertGroupName);
   }
 
+  function getStatusGroupNames() {
+    return normalizeAlertGroupNames(notifierConfig.statusGroupNames);
+  }
+
   function shouldNotify(type) {
     if (!isEnabled()) return false;
     if ((type === 'readyBusinessHours' || type === 'readyOffHours') && notifierConfig.notifyOnReady === false) {
@@ -209,6 +213,47 @@ function createOperationalNotifier({
     };
   }
 
+  async function sendToStatusGroups(message) {
+    const groupNames = getStatusGroupNames();
+    if (!groupNames.length) {
+      console.log('[OPERATIONAL NOTIFY] sin grupos de estado configurados; aviso solo en consola');
+      return { ok: false, reason: 'missing-status-groups', sent: 0, total: 0 };
+    }
+
+    const chatsByName = await getAlertChatsByName();
+    let sent = 0;
+    const failed = [];
+
+    for (const groupName of groupNames) {
+      const chat = chatsByName.get(groupName);
+      if (!chat || typeof chat.sendMessage !== 'function') {
+        console.warn(`[OPERATIONAL NOTIFY] grupo de estado no encontrado: ${maskSensitiveText(groupName, 80)}`);
+        failed.push({ groupName, reason: 'not-found' });
+        continue;
+      }
+
+      try {
+        await chat.sendMessage(message);
+        sent += 1;
+      } catch (err) {
+        console.warn(
+          `[OPERATIONAL NOTIFY] fallo envio a ${maskSensitiveText(groupName, 80)}: ` +
+          `${maskSensitiveText(err && err.message)}`
+        );
+        failed.push({ groupName, reason: 'send-failed', error: err });
+      }
+    }
+
+    console.log(`[OPERATIONAL NOTIFY] sent to ${sent}/${groupNames.length} status group(s)`);
+    return {
+      ok: sent > 0,
+      reason: sent > 0 ? undefined : 'no-status-delivered',
+      sent,
+      total: groupNames.length,
+      failed,
+    };
+  }
+
   async function sendPreparedMessage(message, options = {}) {
     if (!isEnabled()) {
       return { ok: false, reason: 'disabled' };
@@ -223,9 +268,12 @@ function createOperationalNotifier({
       return { ok: false, reason: 'duplicate-state' };
     }
 
+    const channel = options.channel === 'status' ? 'status' : 'alert';
     console.log(`[OPERATIONAL NOTIFY] ${message}`);
     try {
-      const result = await sendToAlertGroups(message);
+      const result = channel === 'status'
+        ? await sendToStatusGroups(message)
+        : await sendToAlertGroups(message);
       if (stateKey) lastStateMessageKey = stateKey;
       return result;
     } catch (err) {
@@ -240,7 +288,7 @@ function createOperationalNotifier({
       return { ok: false, reason: 'disabled' };
     }
 
-    return sendPreparedMessage(buildOperationalMessage(type), options);
+    return sendPreparedMessage(buildOperationalMessage(type), { ...options, channel: 'status' });
   }
 
   async function notifyAlert(severity, eventType, message, details = {}, options = {}) {
@@ -348,6 +396,7 @@ function createOperationalNotifier({
     buildOperationalMessage,
     checkOperationalTransition,
     getAlertGroupNames,
+    getStatusGroupNames,
     installShutdownHooks,
     isOperationalMessageSafe,
     notify,

@@ -173,6 +173,16 @@ function loadConfig() {
       : [process.env.WHATSAPP_ALERT_GROUP_NAME]
   );
 
+  const parsedStatusGroupNames = parseOptionalJsonList(
+    process.env.WHATSAPP_STATUS_GROUPS_JSON,
+    'WHATSAPP_STATUS_GROUPS_JSON'
+  );
+  const statusGroupNames = normalizeUniqueList(
+    parsedStatusGroupNames && parsedStatusGroupNames.length
+      ? parsedStatusGroupNames
+      : alertGroupNames
+  );
+
   return {
     projectRoot: PROJECT_ROOT,
     env: process.env.BOT_ENV || process.env.NODE_ENV || 'local',
@@ -216,6 +226,7 @@ function loadConfig() {
       enabled: getBoolean('OPERATIONAL_NOTIFICATIONS_ENABLED', true),
       alertGroupName: process.env.WHATSAPP_ALERT_GROUP_NAME || '',
       alertGroupNames,
+      statusGroupNames,
       notifyOnReady: getBoolean('OPERATIONAL_NOTIFY_ON_READY', true),
       notifyOnOffHours: getBoolean('OPERATIONAL_NOTIFY_ON_OFF_HOURS', true),
       notifyOnShutdown: getBoolean('OPERATIONAL_NOTIFY_ON_SHUTDOWN', false),
