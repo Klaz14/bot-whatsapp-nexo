@@ -11,6 +11,8 @@ RUN apt-get update \
     ca-certificates \
     chromium \
     fonts-liberation \
+    poppler-utils \
+    poppler-data \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json ./

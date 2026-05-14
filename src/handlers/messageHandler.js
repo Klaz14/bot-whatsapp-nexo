@@ -16,6 +16,7 @@ const {
   loadBlockedSenders,
   normalizePhoneNumber,
 } = require('../services/blockedSenders');
+const { convertPdfFirstPageToJpg } = require('../utils/pdfConverter');
 
 function getMessageDate(msg) {
   const timestamp = Number(msg && msg.timestamp);
@@ -147,6 +148,33 @@ function createMessageHandler({ config, driveService, logService, processedStore
       }
 
       const buffer = Buffer.from(media.data, 'base64');
+
+      // Conversión PDF → JPG (primera página) si aplica
+      let processBuffer = buffer;
+      let processMime = media.mimetype;
+      if (media.mimetype === 'application/pdf') {
+        try {
+          processBuffer = await convertPdfFirstPageToJpg(buffer);
+          processMime = 'image/jpeg';
+          console.log(`[PDF→JPG] convertido: ${maskSensitiveText(chat.name, 80)} - ${media.filename || '(sin nombre)'} - ${processBuffer.length} bytes`);
+        } catch (err) {
+          console.error(`[PDF→JPG ERROR] ${maskSensitiveText(chat.name, 80)}: ${maskSensitiveText(err && err.message)}`);
+          notifySafely(
+            operationalNotifier,
+            'notifyError',
+            'pdf_conversion_failed',
+            'Fallo convirtiendo PDF a imagen para mensaje recibido.',
+            {
+              group: chat.name,
+              tag,
+              filename: media.filename || '(sin nombre)',
+              error: err,
+            }
+          );
+          return;
+        }
+      }
+
       if (!processNow) {
         const operationalDateText = getBusinessDateString(operationalDate, businessCalendar);
         try {
@@ -161,8 +189,8 @@ function createMessageHandler({ config, driveService, logService, processedStore
             );
           }
           const result = await driveService.createPendingUpload({
-            buffer,
-            mimeType: media.mimetype,
+            buffer: processBuffer,
+            mimeType: processMime,
             originalFilename: media.filename,
             messageDate,
             operationalDate,
@@ -172,7 +200,7 @@ function createMessageHandler({ config, driveService, logService, processedStore
               groupName: chat.name,
               groupFolderName: sanitizeDriveFolderName(chat.name, 'grupo', 80),
               tag,
-              mimeType: media.mimetype,
+              mimeType: processMime,
               originalMessageDate: messageDate,
               operationalDate: operationalDateText,
               queuedAt: new Date().toISOString(),
@@ -209,10 +237,10 @@ function createMessageHandler({ config, driveService, logService, processedStore
       let filename = '-';
 
       try {
-        const result = await driveService.uploadWithRetry(null, media.mimetype, buffer, {
+        const result = await driveService.uploadWithRetry(null, processMime, processBuffer, {
           groupName: chat.name,
           date: messageDate,
-          media,
+          media: { ...media, mimetype: processMime },
           sequentialFilename: true,
           tag,
         });
