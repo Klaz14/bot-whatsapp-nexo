@@ -108,7 +108,6 @@ function createOperationalNotifier({
 } = {}) {
   const notifierConfig = getNotifierConfig(config);
   let timer;
-  let cachedChats;
   let lastBusinessHoursState;
   let lastStateMessageKey = '';
   const dedupedAlertKeys = new Set();
@@ -158,13 +157,11 @@ function createOperationalNotifier({
   }
 
   async function getAlertChatsByName() {
-    if (!cachedChats) {
-      if (!client || typeof client.getChats !== 'function') return new Map();
-      cachedChats = await client.getChats();
-    }
+    if (!client || typeof client.getChats !== 'function') return new Map();
+    const chats = await client.getChats();
 
     const chatsByName = new Map();
-    for (const chat of cachedChats || []) {
+    for (const chat of chats || []) {
       if (chat && chat.isGroup && chat.name && !chatsByName.has(chat.name)) {
         chatsByName.set(chat.name, chat);
       }

@@ -183,12 +183,20 @@ function loadConfig() {
       : alertGroupNames
   );
 
+  const blacklistExemptGroups = normalizeUniqueList(
+    parseOptionalJsonList(
+      process.env.BLACKLIST_EXEMPT_GROUPS_JSON,
+      'BLACKLIST_EXEMPT_GROUPS_JSON'
+    ) || []
+  );
+
   return {
     projectRoot: PROJECT_ROOT,
     env: process.env.BOT_ENV || process.env.NODE_ENV || 'local',
     timeZone: normalizeTimeZone(process.env.BOT_TIME_ZONE || DEFAULT_TIME_ZONE),
     dryRun: getBoolean('BOT_DRY_RUN', false),
     processingEnabled: getBoolean('BOT_PROCESSING_ENABLED', true),
+    blacklistExemptGroups,
     logLevel: process.env.BOT_LOG_LEVEL || 'info',
     logging: {
       format: process.env.LOG_FORMAT || 'text',

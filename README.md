@@ -72,6 +72,16 @@ npm install
 
 La primera instalacion puede tardar porque `whatsapp-web.js` usa Puppeteer/Chromium.
 
+### Dependencias del sistema (Linux/Railway)
+
+Si el bot se ejecuta en Railway (Linux), ademas de `npm install`, se requieren binarios del sistema para la conversión PDF→JPG:
+
+```bash
+apt-get update && apt-get install -y --no-install-recommends poppler-utils poppler-data
+```
+
+En el Dockerfile del proyecto esta preconfigurado. El paquete npm `node-poppler@^9.1.2` depende de estos binarios para convertir PDFs a imagenes JPEG.
+
 ## Configuracion
 
 Copiar `.env.example` a `.env` y completar solo los valores necesarios. No subir `.env` ni credenciales.
@@ -230,9 +240,21 @@ No versionar estos ajustes si contienen datos operativos locales.
 npm start
 ```
 
-Cuando el bot esta listo, escucha mensajes de grupos configurados. Si el mensaje trae imagen o PDF, lo descarga y lo sube a Drive. Otros tipos de archivo se ignoran.
+Cuando el bot esta listo, escucha mensajes de grupos configurados. Si el mensaje trae imagen o PDF, lo descarga y lo procesa. Otros tipos de archivo se ignoran.
 
 Para esta fase, toda imagen o PDF recibido en un grupo configurado se considera comprobante. No hay OCR, IA, reconocimiento visual, lectura bancaria ni validacion semantica del contenido.
+
+#### Conversion PDF → JPG
+
+Los PDFs se convierten automaticamente a JPEG (primera página únicamente, DPI 200) antes de ser subidos a Drive, porque sistemas downstream (OCR) solo procesan imagenes, no PDFs.
+
+- **Entrada:** PDF en cualquier tamaño o cantidad de páginas
+- **Proceso:** conversión de la primera página via `node-poppler`
+- **Salida:** JPEG de 200 DPI, archivo convertido sigue el flujo normal de upload/pending
+- **Nombre final:** sigue patrón `<ID>_<DDMM>_<HHmm>_<TAG>.jpg` (extension es siempre `.jpg`, nunca `.pdf`)
+- **Errores:** si la conversion falla (PDF corrupto, encriptado, sin páginas), el bot loguea el error, notifica al grupo administrador via canal de alertas, y NO marca el mensaje como procesado (queda disponible para reintento manual)
+
+Imagenes (JPG, PNG, WebP, GIF) y otros tipos permitidos se suben tal cual, sin conversion.
 
 Los comprobantes se organizan dentro de la carpeta raiz configurada (PULL TRANSFERENCIAS) con esta estructura (planos, sin subcarpetas por grupo ni fecha):
 
@@ -612,6 +634,65 @@ No ejecutar `npm start` ni `npm run auth` salvo instruccion explicita.
 - Si Puppeteer informa `Could not find Chrome`, ejecutar `npm run setup:chrome` o configurar `PUPPETEER_EXECUTABLE_PATH`.
 - Si queda en `Autenticado` y no llega a `Bot listo y escuchando`, observar los eventos `WhatsApp loading`, `WhatsApp state changed` y la advertencia de `WHATSAPP_READY_TIMEOUT_SECONDS`. No borrar `.wwebjs_auth/` ni `.wwebjs_cache/` como primera medida.
 - Si aparece error `SingletonLock` en logs, significa que Puppeteer o Chromium está siendo usado simultáneamente por múltiples procesos. Esto ocurre si se ejecutan dos o más instancias del bot al mismo tiempo. Solución: asegurarse de que solo hay una instancia del bot corriendo. Si se necesita múltiples instancias, requerirá arquitectura de cluster o múltiples máquinas con sesiones WhatsApp/cache separadas.
+
+## Cómo agregar un nuevo grupo productivo al bot
+
+Para agregar un nuevo grupo de WhatsApp al bot:
+
+### Paso 1: Agregar el bot al grupo en WhatsApp
+
+1. Abre el grupo en WhatsApp.
+2. Toca en el nombre/tema del grupo → Información del grupo.
+3. Desplázate a "Miembros" y busca agregar a "Rubén Botta LA RESURRECCIÓN" (identidad del bot).
+4. Confirma que aparece un mensaje de sistema: "Rubén Botta se unió al grupo".
+
+### Paso 2: Editar config.json (archivo local en /data/)
+
+Conecta via SSH a Railway o edita localmente `/data/config.json`:
+
+```json
+{
+  "driveFolderId": "...",
+  "groups": {
+    "Nombre Exacto del Grupo": "BBZCP",
+    "Transfer BBZ CLARO PAY": "BBZCP"
+  }
+}
+```
+
+- La clave (`"Transfer BBZ CLARO PAY"`) debe coincidir EXACTAMENTE con el nombre del grupo en WhatsApp.
+- El valor (`"BBZCP"`) es el TAG sin espacios, recomendable [A-Z0-9]+.
+
+### Paso 3: Editar WHATSAPP_STATUS_GROUPS_JSON (solo DESPUÉS de confirmar membresía)
+
+**IMPORTANTE:** Esta variable SOLO se actualiza después de confirmar que el bot esta fisicamente en el grupo.
+
+En Railway, edita la variable de entorno:
+
+```json
+WHATSAPP_STATUS_GROUPS_JSON=["BOT TEST","PRUEBA TEST","Transfer BBZ CLARO PAY","Transfer BBZ APPLE"]
+```
+
+**¿Por qué el orden de los pasos 2 y 3 importa?** El bot intenta resolver los nombres de grupos en esta variable durante su inicializacion. Si un grupo no existe fisicamente (bot no es miembro), la resolucion puede bloquear el `ready`. Por eso: primero agregar bot al grupo en WhatsApp, LUEGO agregar el nombre a la variable de env.
+
+### Paso 4: Restart limpio
+
+En Railway:
+
+1. Pausa el bot: Custom Start Command = `tail -f /dev/null`
+2. SSH: `find /data/.wwebjs_auth/ -name "Singleton*" -delete` (limpia locks huérfanos)
+3. Despausar: Custom Start Command vacío
+
+### Paso 5: Smoke test
+
+1. Envía una imagen o PDF al grupo nuevo.
+2. Revisa los logs de Railway: `[OK] Transfer BBZ CLARO PAY -> //3_DDMM_HHmm_BBZCP.jpg`
+3. Verifica en Drive que el archivo aparezca en `PULL TRANSFERENCIAS/` con el tag correcto.
+
+Si el bot sigue sin llegar a `ready` después de 120 segundos, verifica:
+- El nombre exacto del grupo en WhatsApp vs. el configurado.
+- Que el bot sea efectivamente miembro del grupo (mensaje de sistema visible).
+- Los logs de Railway para errores de resolucion de grupo.
 
 ## Deploy y operacion
 

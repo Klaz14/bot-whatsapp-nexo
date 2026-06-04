@@ -12,6 +12,7 @@ Este proyecto es un bot Node.js standalone que escucha grupos permitidos de What
 - No hacer deploy desde este repositorio.
 - Mantener `DEPLOYMENT.md` actualizado cuando cambien deploy, supervisor, persistencia, backups, restore o runbooks operativos.
 - El deploy operativo aprobado para esta base es single-instance; no configurar cluster, multiples workers ni escala horizontal sin fase explicita.
+- Verificación de plataforma antes de proponer librerías npm: cuando se elija una librería con dependencias del sistema (binarios, utilities apt-get), verificar primero en el registro npm que la librería soporte Linux (ambiente productivo). Razón: el 14/05/2026 se propuso `pdf-poppler` sin verificar; resultó que NO soporta Linux. Sonnet detectó la incompatibilidad antes de instalar; cambio a `node-poppler` con misma API.
 - En Railway, usar Dockerfile + un solo servicio long-running + Railway Volume montado en `/data`; no guardar estado operativo fuera de `/data`.
 - No subir secretos, sesiones, tokens, configs reales ni backups al Docker build context; mantenerlos fuera de Git y fuera de la imagen.
 - Para Railway, mantener rutas persistentes por variables (`/data/...`) y verificar estructura con scripts read-only antes de arrancar operacion real.
@@ -86,6 +87,11 @@ Este proyecto es un bot Node.js standalone que escucha grupos permitidos de What
 - Las reglas funcionales como blacklist no deben tocar `src/index.js`, `src/services/whatsappClient.js`, `src/config/env.js`, Puppeteer, cache/version de WhatsApp Web, `LocalAuth` ni flujo de inicializacion.
 - Cualquier cambio en arranque/conexion de WhatsApp requiere una fase especifica y prueba manual autorizada de `npm start`.
 - Las tareas de deploy/runbook son documentales salvo instruccion explicita; no deben ejecutar servicios reales, auth, WhatsApp ni Drive.
+- Workflow para agregar grupos productivos al bot: el orden correcto es (1) agregar bot al grupo en WhatsApp como miembro, (2) verificar membresía con smoke test, (3) actualizar `WHATSAPP_STATUS_GROUPS_JSON`. Invertir el orden bloquea el `ready` del bot. Razón: `operationalNotifier` intenta resolver grupos por nombre en init, antes de `ready`; si grupo no existe fisicamente, bloquea indefinidamente. Ver deuda técnica en `CLAUDE.md`.
+
+## Comportamiento defensivo esperado de agentes IA
+
+- **Verificación de firma de funciones del proyecto**: antes de aceptar snippets de código propuestos por un usuario, Sonnet debe verificar que la firma de funciones sea correcta consultando el código existente del proyecto. El 14/05/2026 el prompt propuesto llamaba `notifyError(string)` pero la firma real es `(eventType, message, details, options)`. Sonnet detectó la discrepancia y aplicó el patrón correcto del proyecto (`notifySafely()` con null-guard). Comportamiento defensivo modelo.
 
 ## Archivos y carpetas sensibles
 

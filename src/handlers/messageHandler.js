@@ -90,6 +90,8 @@ function createMessageHandler({ config, driveService, logService, processedStore
         },
       });
       const blocked = isSenderBlocked(senderId, blockedNumbers);
+      const exemptGroups = config.blacklistExemptGroups || [];
+      const isExempt = exemptGroups.includes(chat.name);
       console.log(
         `[blacklist] author=${formatBlacklistSender(authorId)} ` +
         `from=${formatBlacklistSender(fromId)} ` +
@@ -108,7 +110,10 @@ function createMessageHandler({ config, driveService, logService, processedStore
           `blocked=${blocked}`
         );
       }
-      if (blocked) {
+      if (blocked && isExempt) {
+        console.log(`[BLACKLIST EXEMPT] sender ${maskPhone(senderId)} estaria bloqueado pero el grupo "${maskSensitiveText(chat.name, 80)}" esta en BLACKLIST_EXEMPT_GROUPS_JSON, procesando comprobante`);
+      }
+      if (blocked && !isExempt) {
         console.log(`[IGNORED] blocked sender ${maskPhone(senderId)} in ${maskSensitiveText(chat.name, 80)}`);
         return;
       }

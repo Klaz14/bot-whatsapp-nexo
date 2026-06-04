@@ -11,7 +11,7 @@ Este archivo complementa a `AGENTS.md` con la identidad del proyecto, el mapa ar
 ## 2. Identidad del proyecto
 
 - **Codename:** `ruben-botta-el-renacido`
-- **Versión actual:** V0.6 (13/05/2026)
+- **Versión actual:** V0.6 + PDF→JPG conversion + 49 grupos productivos (26/05/2026)
 - **WhatsApp profile name:** Rubén Botta LA RESURRECCIÓN
 - **Relación con el bot anterior:** reemplazo completo del bot `bot-whatsapp-drive` original. Mismo repositorio, misma estructura de código. Las credenciales Google y el token OAuth se renuevan por completo (nuevos `credentials.json` y `token.json`).
 - **Carpeta Drive raíz:** se reutiliza la carpeta `Entrantes` existente (`GOOGLE_DRIVE_FOLDER_ID` se mantiene sin cambios).
@@ -34,6 +34,7 @@ La idempotencia se garantiza con un store local (`processed-messages.json`) que 
 - **WhatsApp Web:** `whatsapp-web.js` con `LocalAuth` y Puppeteer/Chromium
 - **Google Drive:** `googleapis` v3, OAuth Client ID (no Service Account)
 - **QR terminal:** `qrcode-terminal`
+- **PDF→JPG conversion:** `node-poppler@^9.1.2` para convertir primera página de PDFs a JPEG (DPI 200). Requiere `poppler-utils` y `poppler-data` instalados en imagen Docker (para Railway/Linux)
 - **Gestor de paquetes:** npm — instalar siempre con `npm ci`
 
 ---
@@ -123,6 +124,7 @@ node scripts/auditPendingTransfers.js   # auditoría read-only de pendientes en 
 | Cambiar safety flags o dry-run | Variables `BOT_PROCESSING_ENABLED`, `BOT_DRY_RUN`, `ALLOW_REAL_*` |
 | Extender auditoría de pendientes | `src/services/pendingAuditService.js`, `scripts/auditPendingTransfers.js` |
 | Verificar estructura de Volume en Railway | `scripts/checkRailwayData.js` (extender `REQUIRED_ITEMS`) |
+| Cambiar lógica de conversión PDF→JPG | `src/utils/pdfConverter.js`, `src/handlers/messageHandler.js` (bloque conversión), `Dockerfile` (deps poppler) |
 
 ---
 
@@ -135,9 +137,15 @@ node scripts/auditPendingTransfers.js   # auditoría read-only de pendientes en 
 - **`folderCache` sin TTL:** el cache en memoria de IDs de carpetas Drive no expira. Si una carpeta es movida o eliminada manualmente en Drive durante la operación, el bot puede fallar hasta reiniciar.
 - **README.md con estructura desactualizada:** la sección `## Estructura` no refleja los archivos actuales del proyecto (faltan módulos agregados en fases posteriores).
 - **Pendientes de días anteriores no procesados automáticamente:** `pendingProcessor` solo revisa la subcarpeta del día operativo actual; días previos quedan sin procesar si el bot estuvo apagado. En V0.6 este comportamiento se simplificó: `listAllPendingFiles()` no asume estructura de carpetas, por lo que pendientes huérfanos pueden quedar sin procesar si están fuera de la carpeta raiz esperada.
-- **SingletonLock sin protección en operaciones concurrentes:** la cache de IDs de carpetas Drive en `driveService.js` no tiene mecanismo de lock. Si múltiples instancias del bot intenten crear carpetas simultáneamente, el cache puede diverger del estado real en Drive.
+- **`folderCache` y `getOrCreateFolder` son código muerto en V0.6 (estructura plana):** desde V0.6 el path de subida usa `driveFolderId` directamente sin crear subcarpetas, por lo que `getOrCreateFolder()` y su cache no se invocan. El código está exportado pero no se usa. Audit del 27/05/2026 confirmó que la sección crítica de subidas SÍ está serializada vía `withFolderLock()` (driveService.js:174), mecanismo que estaba sin documentar. La deuda real es el código muerto a remover, no la falta de lock.
 - **logicalPath "//" después de V0.6:** stub functions `buildDriveFolderPath()` y derivadas retornan `logicalPath: '/'` para indicar que no usan subfoldersahora. Algunos logs que intentan formatear esa ruta para debugging pueden mostrar barras dobles `//`. Sin impacto funcional, pero debe limpiarse en próxima fase.
 - **Técnica operativa de pausa de servicio (Railway):** durante la era V1, se usaba `tail -f /dev/null` como Custom Start Command en Railway para mantener el container "Online" sin ejecutar el bot. Es útil como técnica de mantenimiento (acceso por SSH al volume sin que el bot interfiera), pero NUNCA debe quedar como default — impide arranque normal. Si se aplica temporalmente, **acordate de limpiarlo antes de hacer redeploy productivo.**
+- **Bug operationalNotifier — resolución de grupos pre-ready:** el módulo intenta resolver los nombres de grupos en `WHATSAPP_STATUS_GROUPS_JSON` durante la inicialización del bot, ANTES del evento `ready`. Cuando un grupo configurado no existe físicamente (bot no es miembro), la resolución bloquea indefinidamente y previene el `ready`. **Viola la regla del proyecto**: "las notificaciones operativas no deben bloquear ready". Workaround actual: agregar bot a los grupos FÍSICAMENTE antes de configurarlos en `WHATSAPP_STATUS_GROUPS_JSON`. Fix sugerido: lazy resolution — resolver solo en el momento de enviar; si grupo no existe, loguear warning y continuar.
+- **Mensajes durante outage no se procesan retroactivamente:** cuando el bot está autenticado-pero-no-ready, los mensajes entrantes a los grupos no se acumulan en cola interna de whatsapp-web.js. Si el bot vuelve a ready, esos mensajes se pierden y deben reenviarse manualmente. Detectado el 14/05 con `comprobante-207.pdf` que llegó durante outage y no fue procesado al recovery.
+- **P5 — Pérdida silenciosa de comprobante si Drive falla 3 reintentos (MEDIA, identificada en audit del 27/05/2026):** dentro de horario operativo, si `uploadWithRetry()` (driveService.js:249) agota los 3 reintentos por error transitorio de Drive (429, 5xx), el handler (messageHandler.js:277) captura el error y alerta a BOT TEST, pero **NO reencola el comprobante a pending**. El mensaje de WhatsApp ya fue consumido (fire-and-forget), por lo que el comprobante se pierde silenciosamente: no se sube, no queda pending, no se marca processed, no se reprocesa. Fix recomendado: en el catch del handler, fallback a pending cuando upload live agota reintentos.
+- **P4 — Conversión PDF sin límite de concurrencia (MEDIA, identificada en audit del 27/05/2026):** `pdfConverter.js` no limita la cantidad de conversiones simultáneas. Si llegan 10 PDFs en paralelo, se spawnean 10 procesos `pdftocairo` concurrentes que rasterizan a 200 DPI. Riesgo de pico de RAM/CPU u OOM-kill del container Railway, con pérdida de comprobantes en vuelo. Fix recomendado: semáforo / pool de concurrencia limitando a 2-3 conversiones simultáneas.
+- **P6 — Handler fire-and-forget sin cola global (MEDIA, identificada en audit del 27/05/2026):** `client.on('message', handler)` dispara handlers en paralelo sin queue interna ni backpressure. Si llegan N mensajes simultáneos, se procesan N handlers concurrentes. La subida a Drive queda serializada por `withFolderLock`, pero descarga + conversión PDF + dedup corren todas en paralelo sin límite. Amplifica P4. Fix recomendado: cola interna de trabajo con worker pool de N=2-3, que también resuelve P4 con el mismo mecanismo.
+- **Retry genérico en `uploadWithRetry` (BAJA, identificada en audit del 27/05/2026):** el retry actual no diferencia errores retryables (429, 5xx) de no retryables (4xx permanentes) y no respeta el header `Retry-After` que Drive envía en 429. Desperdicia reintentos en errores permanentes. Fix recomendado: detección de status code + respeto de Retry-After + jitter.
 
 ---
 
@@ -152,3 +160,4 @@ node scripts/auditPendingTransfers.js   # auditoría read-only de pendientes en 
 - **Sanitización antes de log, filename y persistencia:** usar `src/utils/mask.js` para masking de datos sensibles, `src/utils/sanitize.js` para filenames y nombres de carpetas.
 - **Write atómico para stores locales:** escribir a archivo `.tmp` → `fs.renameSync` al path final (patrón de `processedStore.js`).
 - **Metadata de pendientes en Drive:** solo vía `appProperties`; nunca teléfonos, LIDs, links completos ni tokens.
+- **Workflow para agregar grupos productivos al bot:** por el bug del operationalNotifier, el orden correcto es: (1) agregar el bot FÍSICAMENTE al grupo en WhatsApp, (2) verificar membresía con smoke test, (3) actualizar `WHATSAPP_STATUS_GROUPS_JSON` para incluir el nuevo grupo. Invertir el orden bloquea el `ready` del bot.
