@@ -304,12 +304,14 @@ class Client extends EventEmitter {
                  */
                 this.emit(Events.AUTHENTICATED, authEventPayload);
 
-                // [PATCH #3971] Bloque authenticated->ready envuelto en try/catch.
+                // [PATCH #3971] Setup authenticated->ready reintentable.
                 // En 2.3000.x el A/B testing de Meta puede dejar modulos opcionales
-                // sin cargar; sin este guard el throw se traga silenciosamente y el
-                // evento ready nunca dispara (90s de silencio). Logueamos el error
-                // real y continuamos hasta emit(READY) igual (diagnostico + best-effort).
-                try {
+                // sin cargar y, ademas, la pagina de Chromium puede recargarse/cerrarse
+                // mientras la libreria inyecta los scripts de setup ("Target closed").
+                // Ese fallo es TRANSITORIO: la pagina revive. Reintentamos el setup
+                // hasta 3 veces; si igual no completa, emitimos READY para no volver al
+                // ready_timeout (best-effort: el bot arranca aunque pueda quedar sordo).
+                const attemptReadySetup = async () => {
                     const injected = await this.pupPage.evaluate(async () => {
                         return typeof window.WWebJS !== 'undefined';
                     });
@@ -379,13 +381,39 @@ class Client extends EventEmitter {
 
                         await this.attachEventListeners();
                     }
-                } catch (err) {
-                    // [PATCH #3971] Exponer el error real en los logs de Railway en
-                    // vez de tragarlo (causa del "authenticated but ready never fires").
-                    const patchError = err instanceof Error ? err : new Error(String(err));
-                    console.error('[wwebjs-patch] fallo en onAppStateHasSyncedEvent (authenticated->ready):', patchError.message);
-                    console.error('[wwebjs-patch] stack:', patchError.stack);
+                };
+
+                // [PATCH #3971] Loop de reintentos: hasta 3 intentos, esperando 4s
+                // entre intentos solo ante errores transitorios de Puppeteer.
+                const PATCH_MAX_ATTEMPTS = 3;
+                const PATCH_RETRY_DELAY_MS = 4000;
+                const PATCH_TRANSIENT_RE = /Target closed|Protocol error|Session closed/i;
+                let patchSetupOk = false;
+                for (let attempt = 1; attempt <= PATCH_MAX_ATTEMPTS; attempt++) {
+                    try {
+                        await attemptReadySetup();
+                        patchSetupOk = true;
+                        break;
+                    } catch (err) {
+                        const patchError = err instanceof Error ? err : new Error(String(err));
+                        console.error(`[wwebjs-patch] intento ${attempt}/${PATCH_MAX_ATTEMPTS} fallo en onAppStateHasSyncedEvent (authenticated->ready):`, patchError.message);
+                        console.error('[wwebjs-patch] stack:', patchError.stack);
+
+                        const isTransient = PATCH_TRANSIENT_RE.test(patchError.message);
+                        if (isTransient && attempt < PATCH_MAX_ATTEMPTS) {
+                            console.warn(`[wwebjs-patch] error transitorio; reintentando en ${PATCH_RETRY_DELAY_MS}ms...`);
+                            await new Promise((r) => setTimeout(r, PATCH_RETRY_DELAY_MS));
+                            continue;
+                        }
+                        // Error no transitorio, o se agotaron los intentos: salir del loop.
+                        break;
+                    }
                 }
+
+                if (!patchSetupOk) {
+                    console.error('[wwebjs-patch] SORDO: setup no completado tras 3 intentos, el bot arranca pero puede no procesar mensajes.');
+                }
+
                 /**
                  * Emitted when the client has initialized and is ready to receive messages.
                  * @event Client#ready
