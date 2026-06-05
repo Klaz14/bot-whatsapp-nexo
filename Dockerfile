@@ -20,4 +20,10 @@ RUN npm ci --omit=dev
 
 COPY . .
 
+# [PATCH #3971] Sobrescribir Client.js de whatsapp-web.js con el parche local
+# (try/catch + guards en el bloque authenticated->ready). Va DESPUES de COPY . .
+# para garantizar que ninguna capa posterior lo pise. node_modules esta en
+# .dockerignore, asi que COPY . . no trae el node_modules local.
+COPY patches/Client.js node_modules/whatsapp-web.js/src/Client.js
+
 CMD ["npm", "start"]
