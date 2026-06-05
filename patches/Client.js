@@ -316,6 +316,11 @@ class Client extends EventEmitter {
                         return typeof window.WWebJS !== 'undefined';
                     });
 
+                    // [PATCH #3971] El guard !injected envuelve SOLO la inyeccion de
+                    // utils (webcache + LoadUtils + wait loop). NO debe envolver el
+                    // attach de listeners: en un reintento WWebJS ya puede estar
+                    // inyectado y, si el attach quedara aca dentro, se saltearia ->
+                    // el bot llega a ready pero queda SORDO (no engancha 'message').
                     if (!injected) {
                         if (
                             this.options.webVersionCache.type === 'local' &&
@@ -349,37 +354,51 @@ class Client extends EventEmitter {
                         if (!res) {
                             throw 'ready timeout';
                         }
+                    }
 
-                        /**
-                         * Current connection information
-                         * @type {ClientInfo}
-                         */
-                        // [PATCH #3971] Guards defensivos: si WAWebConnModel o
-                        // WAWebUserPrefsMeUser no estan cargados, usar defaults en
-                        // lugar de lanzar, para que el flujo llegue a emit(READY).
-                        this.info = new ClientInfo(
-                            this,
-                            await this.pupPage.evaluate(() => {
-                                const connModule = window.require('WAWebConnModel');
-                                const meUserModule = window.require('WAWebUserPrefsMeUser');
-                                const conn =
-                                    connModule && connModule.Conn && typeof connModule.Conn.serialize === 'function'
-                                        ? connModule.Conn.serialize()
-                                        : {};
-                                const wid =
-                                    (meUserModule && typeof meUserModule.getMaybeMePnUser === 'function'
-                                        ? meUserModule.getMaybeMePnUser()
-                                        : undefined) ||
-                                    (meUserModule && typeof meUserModule.getMaybeMeLidUser === 'function'
-                                        ? meUserModule.getMaybeMeLidUser()
-                                        : undefined);
-                                return { ...conn, wid };
-                            }),
-                        );
+                    // [PATCH #3971] SIEMPRE en cada intento (fuera del guard !injected):
+                    // ClientInfo + InterfaceController + attachEventListeners, para que
+                    // los listeners de 'message' se registren aunque WWebJS ya estuviera
+                    // inyectado por un intento previo que fallo durante el attach.
 
-                        this.interface = new InterfaceController(this);
+                    /**
+                     * Current connection information
+                     * @type {ClientInfo}
+                     */
+                    // [PATCH #3971] Guards defensivos: si WAWebConnModel o
+                    // WAWebUserPrefsMeUser no estan cargados, usar defaults en
+                    // lugar de lanzar, para que el flujo llegue a emit(READY).
+                    this.info = new ClientInfo(
+                        this,
+                        await this.pupPage.evaluate(() => {
+                            const connModule = window.require('WAWebConnModel');
+                            const meUserModule = window.require('WAWebUserPrefsMeUser');
+                            const conn =
+                                connModule && connModule.Conn && typeof connModule.Conn.serialize === 'function'
+                                    ? connModule.Conn.serialize()
+                                    : {};
+                            const wid =
+                                (meUserModule && typeof meUserModule.getMaybeMePnUser === 'function'
+                                    ? meUserModule.getMaybeMePnUser()
+                                    : undefined) ||
+                                (meUserModule && typeof meUserModule.getMaybeMeLidUser === 'function'
+                                    ? meUserModule.getMaybeMeLidUser()
+                                    : undefined);
+                            return { ...conn, wid };
+                        }),
+                    );
 
+                    this.interface = new InterfaceController(this);
+
+                    // [PATCH #3971] Guard de idempotencia: attachEventListeners se
+                    // ejecuta en cada intento HASTA que complete una vez con exito;
+                    // luego no se repite (evita duplicar listeners page-side). Si un
+                    // intento previo lanzo a mitad del attach, el flag sigue en false
+                    // y se reintenta entero (el lado Node ya es idempotente via
+                    // exposeFunctionIfAbsent; el page-side muere con el "Target closed").
+                    if (!this._patchListenersAttached) {
                         await this.attachEventListeners();
+                        this._patchListenersAttached = true;
                     }
                 };
 
