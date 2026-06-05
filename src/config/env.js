@@ -145,7 +145,7 @@ function getPositiveNumber(name, defaultValue) {
 
 function getWhatsappWebCacheType() {
   const value = (process.env.WHATSAPP_WEB_VERSION_CACHE_TYPE || 'none').toLowerCase();
-  return ['none', 'local'].includes(value) ? value : 'none';
+  return ['none', 'local', 'remote'].includes(value) ? value : 'none';
 }
 
 function loadConfig() {
@@ -255,6 +255,7 @@ function loadConfig() {
       readyTimeoutSeconds: getPositiveNumber('WHATSAPP_READY_TIMEOUT_SECONDS', 120),
       webVersion: process.env.WHATSAPP_WEB_VERSION || undefined,
       webVersionCacheType: getWhatsappWebCacheType(),
+      webVersionRemotePath: process.env.WHATSAPP_WEB_VERSION_REMOTE_PATH || undefined,
     },
     puppeteer: {
       executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,

@@ -40,6 +40,12 @@ function createWhatsappClient(config) {
     clientOptions.webVersionCache.strict = false;
   }
 
+  if (config.whatsapp.webVersionCacheType === 'remote' && config.whatsapp.webVersionRemotePath) {
+    // El remotePath usa el placeholder {version} que whatsapp-web.js reemplaza
+    // con config.whatsapp.webVersion al resolver la versión de WhatsApp Web.
+    clientOptions.webVersionCache.remotePath = config.whatsapp.webVersionRemotePath;
+  }
+
   return new Client(clientOptions);
 }
 
