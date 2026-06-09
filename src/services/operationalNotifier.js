@@ -113,6 +113,7 @@ function createOperationalNotifier({
   const dedupedAlertKeys = new Set();
   let shutdownHooksInstalled = false;
   let shutdownInProgress = false;
+  let dailyNotifyInProgress = false;
 
   function loadCalendar() {
     return loadBusinessCalendar(config.paths && config.paths.businessCalendar, {
@@ -140,6 +141,10 @@ function createOperationalNotifier({
 
   function getStatusGroupNames() {
     return normalizeAlertGroupNames(notifierConfig.statusGroupNames);
+  }
+
+  function getDailyGroupNames() {
+    return normalizeAlertGroupNames(notifierConfig.dailyGroupNames);
   }
 
   function shouldNotify(type) {
@@ -251,6 +256,64 @@ function createOperationalNotifier({
     };
   }
 
+  async function sendToDailyGroups(message) {
+    if (dailyNotifyInProgress) {
+      console.log('[OPERATIONAL NOTIFY] daily notify en curso; se omite envio solapado');
+      return { ok: false, reason: 'in-progress', sent: 0, total: 0 };
+    }
+
+    const groupNames = getDailyGroupNames();
+    if (!groupNames.length) {
+      console.log('[OPERATIONAL NOTIFY] sin grupos daily configurados; aviso solo en consola');
+      return { ok: false, reason: 'missing-daily-groups', sent: 0, total: 0 };
+    }
+
+    dailyNotifyInProgress = true;
+    const delayMs = notifierConfig.dailyNotifyDelayMs || 0;
+
+    try {
+      const chatsByName = await getAlertChatsByName();
+      let sent = 0;
+      const failed = [];
+
+      for (let i = 0; i < groupNames.length; i++) {
+        const groupName = groupNames[i];
+        const chat = chatsByName.get(groupName);
+        if (!chat || typeof chat.sendMessage !== 'function') {
+          console.warn(`[OPERATIONAL NOTIFY] grupo daily no encontrado: ${maskSensitiveText(groupName, 80)}`);
+          failed.push({ groupName, reason: 'not-found' });
+          continue;
+        }
+
+        try {
+          await chat.sendMessage(message);
+          sent += 1;
+        } catch (err) {
+          console.warn(
+            `[OPERATIONAL NOTIFY] fallo envio daily a ${maskSensitiveText(groupName, 80)}: ` +
+            `${maskSensitiveText(err && err.message)}`
+          );
+          failed.push({ groupName, reason: 'send-failed', error: err });
+        }
+
+        if (delayMs > 0 && i < groupNames.length - 1) {
+          await new Promise((r) => setTimeout(r, delayMs));
+        }
+      }
+
+      console.log(`[OPERATIONAL NOTIFY] sent to ${sent}/${groupNames.length} daily group(s)`);
+      return {
+        ok: sent > 0,
+        reason: sent > 0 ? undefined : 'no-daily-delivered',
+        sent,
+        total: groupNames.length,
+        failed,
+      };
+    } finally {
+      dailyNotifyInProgress = false;
+    }
+  }
+
   async function sendPreparedMessage(message, options = {}) {
     if (!isEnabled()) {
       return { ok: false, reason: 'disabled' };
@@ -265,12 +328,16 @@ function createOperationalNotifier({
       return { ok: false, reason: 'duplicate-state' };
     }
 
-    const channel = options.channel === 'status' ? 'status' : 'alert';
+    const channel = options.channel === 'daily' ? 'daily'
+      : options.channel === 'status' ? 'status'
+      : 'alert';
     console.log(`[OPERATIONAL NOTIFY] ${message}`);
     try {
-      const result = channel === 'status'
-        ? await sendToStatusGroups(message)
-        : await sendToAlertGroups(message);
+      const result = channel === 'daily'
+        ? await sendToDailyGroups(message)
+        : channel === 'status'
+          ? await sendToStatusGroups(message)
+          : await sendToAlertGroups(message);
       if (stateKey) lastStateMessageKey = stateKey;
       return result;
     } catch (err) {
@@ -340,12 +407,12 @@ function createOperationalNotifier({
     lastBusinessHoursState = insideBusinessHours;
 
     if (wasInside && !insideBusinessHours) {
-      return notify('offHoursStarted', { stateKey: 'transition:off-hours' });
+      return sendPreparedMessage(buildOperationalMessage('offHoursStarted'), { stateKey: 'transition:off-hours', channel: 'daily' });
     }
 
     if (!wasInside && insideBusinessHours) {
       lastStateMessageKey = '';
-      return notify('onHoursStarted', { stateKey: 'transition:on-hours' });
+      return sendPreparedMessage(buildOperationalMessage('onHoursStarted'), { stateKey: 'transition:on-hours', channel: 'daily' });
     }
 
     return { ok: false, reason: 'no-transition' };
@@ -393,6 +460,7 @@ function createOperationalNotifier({
     buildOperationalMessage,
     checkOperationalTransition,
     getAlertGroupNames,
+    getDailyGroupNames,
     getStatusGroupNames,
     installShutdownHooks,
     isOperationalMessageSafe,

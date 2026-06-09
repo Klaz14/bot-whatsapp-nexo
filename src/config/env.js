@@ -183,6 +183,24 @@ function loadConfig() {
       : alertGroupNames
   );
 
+  const parsedDailyGroupNames = parseOptionalJsonList(
+    process.env.WHATSAPP_DAILY_GROUPS_JSON,
+    'WHATSAPP_DAILY_GROUPS_JSON'
+  );
+  const dailyGroupNames = normalizeUniqueList(
+    parsedDailyGroupNames && parsedDailyGroupNames.length
+      ? parsedDailyGroupNames
+      : statusGroupNames
+  );
+
+  const rawDailyDelayMs = process.env.OPERATIONAL_DAILY_NOTIFY_DELAY_MS;
+  const parsedDailyDelayMs = rawDailyDelayMs !== undefined && rawDailyDelayMs !== ''
+    ? Number(rawDailyDelayMs)
+    : 1500;
+  const dailyNotifyDelayMs = Number.isFinite(parsedDailyDelayMs) && parsedDailyDelayMs >= 0
+    ? parsedDailyDelayMs
+    : 1500;
+
   const blacklistExemptGroups = normalizeUniqueList(
     parseOptionalJsonList(
       process.env.BLACKLIST_EXEMPT_GROUPS_JSON,
@@ -235,6 +253,8 @@ function loadConfig() {
       alertGroupName: process.env.WHATSAPP_ALERT_GROUP_NAME || '',
       alertGroupNames,
       statusGroupNames,
+      dailyGroupNames,
+      dailyNotifyDelayMs,
       notifyOnReady: getBoolean('OPERATIONAL_NOTIFY_ON_READY', true),
       notifyOnOffHours: getBoolean('OPERATIONAL_NOTIFY_ON_OFF_HOURS', true),
       notifyOnShutdown: getBoolean('OPERATIONAL_NOTIFY_ON_SHUTDOWN', false),

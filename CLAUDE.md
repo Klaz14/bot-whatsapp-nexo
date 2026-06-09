@@ -118,7 +118,8 @@ node scripts/auditPendingTransfers.js   # auditoría read-only de pendientes en 
 | Cambiar lógica de cola fuera de horario (encolado) | `src/handlers/messageHandler.js`, `src/services/driveService.js` |
 | Cambiar procesamiento de pendientes (reintento, cleanup) | `src/services/pendingProcessor.js`, `src/services/pendingDriveService.js` |
 | Cambiar formato o destino de logs | `src/services/logService.js`, `src/utils/mask.js`, `src/utils/sanitize.js` |
-| Cambiar notificaciones operativas | `src/services/operationalNotifier.js`, variables `WHATSAPP_ALERT_*` y `OPERATIONAL_*` |
+| Cambiar notificaciones operativas (canales status/alert) | `src/services/operationalNotifier.js`, variables `WHATSAPP_ALERT_*`, `WHATSAPP_STATUS_*` y `OPERATIONAL_*` |
+| Cambiar canal daily (inicio/fin de día hábil) | `src/services/operationalNotifier.js` (`sendToDailyGroups`, `getDailyGroupNames`), `src/config/env.js`, variables `WHATSAPP_DAILY_GROUPS_JSON` y `OPERATIONAL_DAILY_NOTIFY_DELAY_MS` |
 | Cambiar configuración de arranque WhatsApp / Puppeteer | `src/services/whatsappClient.js`, variables `PUPPETEER_*` y `WHATSAPP_*` |
 | Cambiar flujo OAuth / renovación de token | `src/auth/googleOAuth.js`, `src/services/driveService.js` |
 | Agregar grupos monitoreados o cambiar tags | `config.json` o variable `WHATSAPP_ALLOWED_GROUPS_JSON` |

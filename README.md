@@ -408,11 +408,13 @@ Variables:
 WHATSAPP_ALERT_GROUP_NAME=
 WHATSAPP_ALERT_GROUPS_JSON=[]
 WHATSAPP_STATUS_GROUPS_JSON=[]
+WHATSAPP_DAILY_GROUPS_JSON=[]
 OPERATIONAL_NOTIFICATIONS_ENABLED=true
 OPERATIONAL_NOTIFY_ON_READY=true
 OPERATIONAL_NOTIFY_ON_OFF_HOURS=true
 OPERATIONAL_NOTIFY_ON_SHUTDOWN=false
 OPERATIONAL_STATUS_CHECK_INTERVAL_SECONDS=60
+OPERATIONAL_DAILY_NOTIFY_DELAY_MS=1500
 ```
 
 Para un unico grupo administrador (alertas y estado), usar:
@@ -436,16 +438,36 @@ WHATSAPP_STATUS_GROUPS_JSON=["BOT OPERACIONES","BOT TEST"]
 WHATSAPP_ALERT_GROUPS_JSON=["BOT ALERTAS"]
 ```
 
-Si `WHATSAPP_STATUS_GROUPS_JSON` no se define, el bot usa `WHATSAPP_ALERT_GROUPS_JSON` como fallback. Los mensajes de estado operativo (`✅ listo`, `🌙 fuera de horario`, `🌞 inicio de horario`) se envian a status groups. Las alertas de error (warnings, críticas) se envian a alert groups.
+Si `WHATSAPP_STATUS_GROUPS_JSON` no se define, el bot usa `WHATSAPP_ALERT_GROUPS_JSON` como fallback. Las alertas de error (warnings, críticas) se envian a alert groups.
+
+El bot tiene tres canales de notificacion separados:
+
+| Canal | Variable | Mensajes que recibe |
+|---|---|---|
+| **status** | `WHATSAPP_STATUS_GROUPS_JSON` | Ready al arrancar (✅ dentro de horario / 🌙 fuera de horario) y shutdown (⚠️) |
+| **daily** | `WHATSAPP_DAILY_GROUPS_JSON` | Inicio de día hábil (🌞) y fin de día hábil (🌙) — con throttling entre grupos |
+| **alert** | `WHATSAPP_ALERT_GROUPS_JSON` | Alertas de error operativo |
+
+El canal `daily` esta pensado para notificar transiciones de horario a todos los grupos productivos sin saturar las alertas de administracion. Como puede enviar a muchos grupos en secuencia, el bot espera un delay configurable entre cada envio para evitar que WhatsApp marque los mensajes como spam:
+
+```env
+WHATSAPP_DAILY_GROUPS_JSON=["Grupo A","Grupo B","Grupo C"]
+OPERATIONAL_DAILY_NOTIFY_DELAY_MS=1500
+```
+
+`OPERATIONAL_DAILY_NOTIFY_DELAY_MS` es el tiempo en milisegundos entre envios secuenciales (default `1500`). Con 54 grupos y 1500ms de delay el ciclo tarda aproximadamente 80 segundos. Si el valor es negativo o no numerico, se usa el default. `0` desactiva el delay.
+
+Si `WHATSAPP_DAILY_GROUPS_JSON` no se define o esta vacio, el canal `daily` usa los mismos grupos que `WHATSAPP_STATUS_GROUPS_JSON` como fallback — el comportamiento es identico al anterior a esta funcionalidad.
 
 Si un grupo configurado no existe o falla el envio a un destino, el bot registra un warning seguro y continua con los demas grupos. Un problema de notificacion no debe tumbar el proceso.
 
-Mensajes previstos:
+Mensajes previstos y canal por el que se envian:
 
-- Ready dentro de horario: `✅ Bot preparado para trabajar. Horario operativo activo. Los comprobantes se procesarán en Entrantes.`
-- Ready fuera de horario: `🌙 Bot activo fuera de horario. Desde ahora los comprobantes quedan en lista de pendientes y se procesarán al comienzo del siguiente día hábil.`
-- Fin de horario operativo: `🌙 Fin del horario operativo. Desde ahora los comprobantes quedan en lista de pendientes y se procesarán al comienzo del siguiente día hábil.`
-- Apagado local ordenado, solo si `OPERATIONAL_NOTIFY_ON_SHUTDOWN=true`: `⚠️ Bot detenido manualmente. Si se reciben comprobantes mientras está apagado, no podrán ser capturados hasta que vuelva a iniciar.`
+- **[status]** Ready dentro de horario: `✅ Bot preparado para trabajar. Horario operativo activo. Los comprobantes se procesarán en Entrantes.`
+- **[status]** Ready fuera de horario: `🌙 Bot activo fuera de horario. Desde ahora los comprobantes quedan en lista de pendientes y se procesarán al comienzo del siguiente día hábil.`
+- **[daily]** Inicio de día hábil: `🌞 Inicio del horario operativo. El bot va a procesar los comprobantes acumulados (si hay) y volver a recibir comprobantes en tiempo real.`
+- **[daily]** Fin de horario operativo: `🌙 Fin del horario operativo. Desde ahora los comprobantes quedan en lista de pendientes y se procesarán al comienzo del siguiente día hábil.`
+- **[status]** Apagado local ordenado, solo si `OPERATIONAL_NOTIFY_ON_SHUTDOWN=true`: `⚠️ Bot detenido manualmente. Si se reciben comprobantes mientras está apagado, no podrán ser capturados hasta que vuelva a iniciar.`
 
 El aviso de apagado por `Ctrl + C`, `SIGINT` o `SIGTERM` es best-effort: el bot intenta enviarlo durante unos segundos y luego deja cerrar el proceso. En un corte abrupto, crash, cierre forzado del host o caida de red, no hay garantia de envio. Por defecto esta desactivado con `OPERATIONAL_NOTIFY_ON_SHUTDOWN=false`.
 
