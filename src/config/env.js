@@ -208,6 +208,14 @@ function loadConfig() {
     ) || []
   );
 
+  const rawPdfBatchSize = process.env.PDF_BATCH_SIZE;
+  const parsedPdfBatchSize = rawPdfBatchSize !== undefined && rawPdfBatchSize !== ''
+    ? Number(rawPdfBatchSize)
+    : 30;
+  const pdfBatchSize = Number.isInteger(parsedPdfBatchSize) && parsedPdfBatchSize >= 1
+    ? parsedPdfBatchSize
+    : 30;
+
   return {
     projectRoot: PROJECT_ROOT,
     env: process.env.BOT_ENV || process.env.NODE_ENV || 'local',
@@ -247,6 +255,9 @@ function loadConfig() {
     pendingProcessor: {
       intervalMinutes: getPositiveNumber('PENDING_PROCESSOR_INTERVAL_MINUTES', 5),
       maxAttempts: getPositiveNumber('PENDING_PROCESSOR_MAX_ATTEMPTS', 3),
+    },
+    pdf: {
+      batchSize: pdfBatchSize,
     },
     operationalNotifications: {
       enabled: getBoolean('OPERATIONAL_NOTIFICATIONS_ENABLED', true),

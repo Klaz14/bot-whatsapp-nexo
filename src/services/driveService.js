@@ -3,6 +3,7 @@ const { Readable } = require('stream');
 const { google } = require('googleapis');
 const { maskSensitiveText } = require('../utils/mask');
 const { buildSequentialUploadFilename } = require('../utils/fileNames');
+const { getPdfPageCount, convertPdfPageRangeToJpgs } = require('../utils/pdfConverter');
 const {
   formatLocalDayMonthForFilename,
 } = require('../utils/time');
@@ -312,6 +313,144 @@ function createDriveService(config) {
     throw lastErr;
   }
 
+  // Sube un PDF rasterizando cada página a JPEG, asignando el MISMO ID
+  // secuencial a todas las páginas y diferenciándolas con sufijo _<pageNumber>.
+  // Best-effort por página: una página que agota reintentos no aborta el resto.
+  async function uploadPdfPagesWithRetry(pdfBuffer, mime, options = {}) {
+    const batchSize = (config.pdf && config.pdf.batchSize) || 30;
+
+    if (config.dryRun || !config.safety.allowRealDriveUploads) {
+      const pageCount = await getPdfPageCount(pdfBuffer);
+      const folderPath = buildDriveFolderPath(options.date || new Date(), config.timeZone);
+      const uploaded = [];
+      for (let pageNumber = 1; pageNumber <= pageCount; pageNumber++) {
+        uploaded.push({
+          filename: buildSequentialUploadFilename({
+            id: 1,
+            date: options.date,
+            tag: options.tag,
+            media: { ...options.media, mimetype: mime },
+            timeZone: config.timeZone,
+            pageNumber: pageCount > 1 ? pageNumber : undefined,
+          }),
+          pageNumber,
+          id: 'dry-run',
+          webViewLink: '',
+        });
+      }
+      console.warn('[upload] subida multi-pagina a Drive bloqueada por configuracion de seguridad.');
+      return {
+        uploaded,
+        failed: [],
+        baseId: 1,
+        pageCount,
+        folderPath: folderPath.logicalPath,
+      };
+    }
+
+    const uploadFolder = await resolveUploadFolder(options);
+    const pageCount = await getPdfPageCount(pdfBuffer);
+
+    return withFolderLock(uploadFolder.id, async () => {
+      const existingNames = await listFileNamesInFolder(uploadFolder.id);
+      const ddmm = formatLocalDayMonthForFilename(options.date, config.timeZone);
+      const baseId = getNextSequentialUploadId(existingNames, ddmm);
+
+      const uploaded = [];
+      const failed = [];
+
+      for (let from = 1; from <= pageCount; from += batchSize) {
+        const to = Math.min(from + batchSize - 1, pageCount);
+
+        let pages;
+        try {
+          pages = await convertPdfPageRangeToJpgs(pdfBuffer, from, to);
+        } catch (batchErr) {
+          const reason = maskSensitiveText(
+            batchErr && batchErr.message ? batchErr.message : 'batch conversion failed'
+          );
+          for (let p = from; p <= to; p++) {
+            failed.push({ pageNumber: p, error: reason });
+          }
+          continue;
+        }
+
+        for (const page of pages) {
+          const filename = buildSequentialUploadFilename({
+            id: baseId,
+            date: options.date,
+            tag: options.tag,
+            media: { ...options.media, mimetype: mime },
+            timeZone: config.timeZone,
+            pageNumber: pageCount > 1 ? page.pageNumber : undefined,
+          });
+
+          let lastErr;
+          let pageResult = null;
+          for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+              const res = await drive.files.create({
+                requestBody: {
+                  name: filename,
+                  parents: [uploadFolder.id],
+                },
+                media: {
+                  mimeType: mime,
+                  body: Readable.from(page.buffer),
+                },
+                fields: 'id, webViewLink',
+                supportsAllDrives: true,
+              });
+              pageResult = {
+                filename,
+                pageNumber: page.pageNumber,
+                id: res.data.id,
+                webViewLink: res.data.webViewLink,
+              };
+              break;
+            } catch (err) {
+              lastErr = err;
+              if (attempt < 3) {
+                const wait = 1000 * Math.pow(2, attempt - 1);
+                console.warn(`[upload] pagina ${page.pageNumber} intento ${attempt}/3 fallo: ${maskSensitiveText(err.message)}. Reintento en ${wait}ms`);
+                await new Promise((resolve) => setTimeout(resolve, wait));
+              }
+            }
+          }
+
+          if (pageResult) {
+            uploaded.push(pageResult);
+          } else {
+            failed.push({
+              pageNumber: page.pageNumber,
+              error: maskSensitiveText(lastErr && lastErr.message ? lastErr.message : 'unknown error'),
+            });
+          }
+        }
+        // Los buffers del lote salen de scope al terminar la iteración -> liberables.
+      }
+
+      return {
+        uploaded,
+        failed,
+        baseId,
+        pageCount,
+        folderPath: uploadFolder.logicalPath,
+      };
+    });
+  }
+
+  async function downloadFileAsBuffer(fileId) {
+    if (config.dryRun || !config.safety.allowRealDriveUploads) {
+      return Buffer.alloc(0);
+    }
+    const res = await drive.files.get(
+      { fileId, alt: 'media', supportsAllDrives: true },
+      { responseType: 'arraybuffer' }
+    );
+    return Buffer.from(res.data);
+  }
+
   async function resolvePendingRootFolder(options = {}) {
     const createIfMissing = options.create !== false;
 
@@ -476,12 +615,14 @@ function createDriveService(config) {
     createPendingUpload,
     copyPendingToEntrantes,
     deletePendingUpload,
+    downloadFileAsBuffer,
     findPendingByMessageKey,
     listAllPendingFiles,
     markPendingUploadStatus,
     resolveUploadFolder,
     resolvePendingRootFolder,
     uploadWithRetry,
+    uploadPdfPagesWithRetry,
   };
 }
 

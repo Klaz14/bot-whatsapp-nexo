@@ -16,7 +16,7 @@ const {
   loadBlockedSenders,
   normalizePhoneNumber,
 } = require('../services/blockedSenders');
-const { convertPdfFirstPageToJpg } = require('../utils/pdfConverter');
+const { convertPdfFirstPageToJpg, getPdfPageCount } = require('../utils/pdfConverter');
 
 function getMessageDate(msg) {
   const timestamp = Number(msg && msg.timestamp);
@@ -154,10 +154,100 @@ function createMessageHandler({ config, driveService, logService, processedStore
 
       const buffer = Buffer.from(media.data, 'base64');
 
+      const isPdf = media.mimetype === 'application/pdf';
+
+      if (isPdf && processNow) {
+        let pageCount = 1;
+        try { pageCount = await getPdfPageCount(buffer); } catch (_) { pageCount = 1; }
+
+        if (pageCount > 1) {
+          try {
+            const result = await driveService.uploadPdfPagesWithRetry(buffer, 'image/jpeg', {
+              groupName: chat.name,
+              date: messageDate,
+              media: { ...media, mimetype: 'image/jpeg' },
+              tag,
+            });
+
+            console.log(`[PDF multi-pagina] ${result.uploaded.length} OK, ${result.failed.length} fallidas (baseId ${result.baseId}, ${result.pageCount} pags)`);
+
+            if (result.failed.length === 0) {
+              if (messageKey) {
+                try {
+                  processedStore.markProcessed(messageKey, { status: 'uploaded' });
+                } catch (storeErr) {
+                  console.error(`[ERROR] no se pudo marcar processed: ${maskSensitiveText(storeErr && storeErr.message)}`);
+                  notifySafely(
+                    operationalNotifier,
+                    'notifyError',
+                    'processed_store_write_failed',
+                    'Comprobante subido, pero no se pudo actualizar idempotencia local.',
+                    {
+                      group: chat.name,
+                      tag,
+                      filename: `baseId_${result.baseId}`,
+                      error: storeErr,
+                    }
+                  );
+                }
+              }
+            } else {
+              notifySafely(
+                operationalNotifier,
+                'notifyError',
+                'drive_multipage_partial',
+                `Subida parcial de PDF multi-pagina: ${result.uploaded.length} OK, ${result.failed.length} fallaron.`,
+                {
+                  group: chat.name,
+                  tag,
+                  filename: `baseId_${result.baseId}`,
+                  error: null,
+                }
+              );
+            }
+          } catch (err) {
+            logService.errorEvent({
+              timestamp: new Date().toISOString(),
+              chatName: chat.name,
+              tag,
+              filename: '-',
+              senderId,
+              drivePath: err && err.folderPath,
+              error: err,
+            });
+            console.error(`[ERROR] no se pudo subir PDF multi-pagina: ${maskSensitiveText(err.message)}`);
+            notifySafely(
+              operationalNotifier,
+              'notifyError',
+              'drive_upload_failed',
+              'Fallo subiendo comprobante multi-pagina a Entrantes.',
+              {
+                group: chat.name,
+                tag,
+                filename: '-',
+                error: err,
+              }
+            );
+          }
+          return;
+          // pageCount == 1 -> NO retorna; cae al flujo normal de abajo (intacto)
+        }
+      }
+
+      // Fuera de horario: si es PDF multi-página, encolar el PDF ORIGINAL crudo
+      // (la conversión por página se difiere al pendingProcessor). PDF de 1 página
+      // o imagen siguen el flujo de siempre (convertir 1ª pág -> encolar JPEG).
+      let enqueueRawPdf = false;
+      if (isPdf && !processNow) {
+        let pageCount = 1;
+        try { pageCount = await getPdfPageCount(buffer); } catch (_) { pageCount = 1; }
+        enqueueRawPdf = pageCount > 1;
+      }
+
       // Conversión PDF → JPG (primera página) si aplica
       let processBuffer = buffer;
       let processMime = media.mimetype;
-      if (media.mimetype === 'application/pdf') {
+      if (media.mimetype === 'application/pdf' && !enqueueRawPdf) {
         try {
           processBuffer = await convertPdfFirstPageToJpg(buffer);
           processMime = 'image/jpeg';

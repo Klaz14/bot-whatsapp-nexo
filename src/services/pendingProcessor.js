@@ -80,7 +80,26 @@ async function processSinglePendingFile({ driveService, processedStore, file, op
       attempts: metadata.attempts,
     });
 
-    const result = await driveService.copyPendingToEntrantes(file);
+    let result;
+    if (metadata.mimeType === 'application/pdf') {
+      const pdfBuffer = await driveService.downloadFileAsBuffer(file.id);
+      const messageDate = new Date(metadata.originalMessageAtUtc || metadata.originalMessageAtLocal);
+      const pdfResult = await driveService.uploadPdfPagesWithRetry(pdfBuffer, 'image/jpeg', {
+        groupName: metadata.groupFolderName,
+        date: Number.isFinite(messageDate.getTime()) ? messageDate : new Date(),
+        media: { mimetype: 'image/jpeg', filename: file.name },
+        tag: metadata.tag,
+      });
+      if (pdfResult.failed.length > 0) {
+        throw new Error(`Subida parcial de PDF multi-pagina: ${pdfResult.uploaded.length} OK, ${pdfResult.failed.length} fallaron`);
+      }
+      result = {
+        filename: `${pdfResult.uploaded.length} paginas (baseId ${pdfResult.baseId})`,
+        folderPath: pdfResult.folderPath,
+      };
+    } else {
+      result = await driveService.copyPendingToEntrantes(file);
+    }
     try {
       processedStore.markProcessed(metadata.messageKey, { status: 'uploaded' });
     } catch (storeErr) {
