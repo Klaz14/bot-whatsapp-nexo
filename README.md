@@ -41,11 +41,14 @@ bot-whatsapp-drive/
       fileNames.js
       mask.js
       mime.js
+      pdfConverter.js
       sanitize.js
       time.js
   scripts/
-    audit-pendientes.js
-    setup-drive-folder.js
+    auditPendingTransfers.js
+    checkRailwayData.js
+  patches/
+    Client.js
   .dockerignore
   .env.example
   .gitignore
@@ -125,6 +128,7 @@ OPERATIONAL_STATUS_CHECK_INTERVAL_SECONDS=60
 BOT_PROCESSING_ENABLED=true
 ALLOW_REAL_WHATSAPP_CONNECTION=true
 ALLOW_REAL_DRIVE_UPLOADS=true
+BLACKLIST_EXEMPT_GROUPS_JSON=[]
 ```
 
 Por compatibilidad, si no se define `GOOGLE_DRIVE_FOLDER_ID` ni `WHATSAPP_ALLOWED_GROUPS_JSON`, el bot lee `config.json`:
@@ -140,7 +144,7 @@ Por compatibilidad, si no se define `GOOGLE_DRIVE_FOLDER_ID` ni `WHATSAPP_ALLOWE
 
 La clave de `groups` debe coincidir exactamente con el nombre del grupo en WhatsApp. El valor se usa como tag en el nombre del archivo subido.
 
-`GOOGLE_DRIVE_FOLDER_ID` o `config.json.driveFolderId` debe apuntar a la carpeta raiz operativa de Drive. Para el flujo actual de comprobantes, esa carpeta raiz debe ser `Entrantes`. No guardar IDs reales en archivos versionados.
+`GOOGLE_DRIVE_FOLDER_ID` o `config.json.driveFolderId` debe apuntar a la carpeta operativa de comprobantes (`PULL TRANSFERENCIAS`), que vive dentro de la carpeta raiz `Entrantes` en Drive. El `driveFolderId` operativo vive en `config.json` (ignorado por Git); no exponer el ID real en archivos versionados.
 
 ## Chrome/Puppeteer
 
@@ -510,6 +514,14 @@ Los numeros se normalizan antes de comparar, por lo que se aceptan formatos como
 
 WhatsApp tambien puede entregar algunos remitentes como identificadores `@lid` en lugar de un numero telefonico tradicional. En esos casos, el valor que debe agregarse a `blocked-senders.json` es el `effectiveNormalized` que muestra el diagnostico local, sin `@lid` ni otros sufijos.
 
+Para que grupos específicos ignoren la blacklist (por ejemplo, cuando un remitente bloqueado globalmente debe poder enviar comprobantes en un grupo particular):
+
+```env
+BLACKLIST_EXEMPT_GROUPS_JSON=["Nombre Exacto del Grupo"]
+```
+
+Si la variable no se define o está vacía, la blacklist aplica a todos los grupos sin excepción.
+
 Si un remitente bloqueado envia media en un grupo configurado, el bot corta antes de `downloadMedia()`: no descarga, no sube a Drive y no marca el mensaje como procesado. Para aplicar cambios en `blocked-senders.json`, reiniciar el bot. Los logs de bloqueo no deben incluir telefonos completos.
 
 Para diagnosticar localmente que numero completo entrega WhatsApp al bot, se puede iniciar una sesion de PowerShell con:
@@ -654,14 +666,14 @@ Conecta via SSH a Railway o edita localmente `/data/config.json`:
 {
   "driveFolderId": "...",
   "groups": {
-    "Nombre Exacto del Grupo": "BBZCP",
-    "Transfer BBZ CLARO PAY": "BBZCP"
+    "Nombre Exacto del Grupo": "TAG",
+    "Transfer BBZ CLARO PAY": "BBZCL"
   }
 }
 ```
 
 - La clave (`"Transfer BBZ CLARO PAY"`) debe coincidir EXACTAMENTE con el nombre del grupo en WhatsApp.
-- El valor (`"BBZCP"`) es el TAG sin espacios, recomendable [A-Z0-9]+.
+- El valor (`"BBZCL"`) es el TAG sin espacios, recomendable [A-Z0-9]+.
 
 ### Paso 3: Editar WHATSAPP_STATUS_GROUPS_JSON (solo DESPUÉS de confirmar membresía)
 
@@ -670,7 +682,7 @@ Conecta via SSH a Railway o edita localmente `/data/config.json`:
 En Railway, edita la variable de entorno:
 
 ```json
-WHATSAPP_STATUS_GROUPS_JSON=["BOT TEST","PRUEBA TEST","Transfer BBZ CLARO PAY","Transfer BBZ APPLE"]
+WHATSAPP_STATUS_GROUPS_JSON=["BOT TEST","PRUEBA TEST"]
 ```
 
 **¿Por qué el orden de los pasos 2 y 3 importa?** El bot intenta resolver los nombres de grupos en esta variable durante su inicializacion. Si un grupo no existe fisicamente (bot no es miembro), la resolucion puede bloquear el `ready`. Por eso: primero agregar bot al grupo en WhatsApp, LUEGO agregar el nombre a la variable de env.
@@ -686,7 +698,7 @@ En Railway:
 ### Paso 5: Smoke test
 
 1. Envía una imagen o PDF al grupo nuevo.
-2. Revisa los logs de Railway: `[OK] Transfer BBZ CLARO PAY -> //3_DDMM_HHmm_BBZCP.jpg`
+2. Revisa los logs de Railway: `[OK] Transfer BBZ CLARO PAY -> //3_DDMM_HHmm_BBZCL.jpg`
 3. Verifica en Drive que el archivo aparezca en `PULL TRANSFERENCIAS/` con el tag correcto.
 
 Si el bot sigue sin llegar a `ready` después de 120 segundos, verifica:
@@ -708,11 +720,25 @@ Ese documento cubre persistencia, supervisor, deploy Railway con volumen `/data`
 
 ## Limitaciones
 
-- `whatsapp-web.js` depende de WhatsApp Web y puede romperse ante cambios externos.
+- `whatsapp-web.js` depende de WhatsApp Web y puede romperse ante cambios externos de Meta sin aviso.
+- **Incompatibilidad 1.34.7 con WhatsApp Web 2.3000.x (incidente 04-05/06/2026):** la versión estable 1.34.7 del paquete dejó de funcionar cuando Meta actualizó WhatsApp Web. Síntoma: la autenticación completaba pero `ready` nunca se disparaba (`whatsapp_ready_timeout` a los 90s). El bot quedaba "autenticado pero sordo". Resolución activa: `patches/Client.js` sobrescribe `Client.js` del paquete en el build Docker con una versión parcheada (retry del setup post-auth, flag de idempotencia del attach). Ver NEKO_LOG.md 04-05/06/2026.
+- Si reaparece el síntoma `autenticado pero sin ready` sin cambios de código propios, sospechar de un nuevo update de Meta y revisar si el patch sigue siendo compatible.
 - No es una integracion oficial WhatsApp Business Cloud API.
 - La idempotencia actual es local y no reemplaza una base compartida para multiples instancias.
 - El masking de logs es basico y debe revisarse si se agregan nuevos proveedores o payloads.
 - No hay deploy/staging formal en esta fase.
+
+## Deploy cycle para builds parcheados
+
+Aplica siempre que se modifique `patches/Client.js` o se realice cualquier cambio que requiera build limpio en Railway:
+
+1. **Pausar** el bot: Custom Start Command = `tail -f /dev/null` → Railway redeploya con el container en pausa (online sin ejecutar el bot)
+2. `commit + push` del cambio (el build corre mientras el bot está pausado)
+3. **SSH al container**: `find /data/.wwebjs_auth/ -name "Singleton*" -delete` (limpia locks huérfanos)
+4. **Despausar**: Custom Start Command vacío → Railway redeploya y ejecuta `node index.js`
+5. Observar logs y hacer smoke test (enviar imagen/PDF a BOT TEST)
+
+**Importante:** nunca ejecutar el cleanup de Singleton mientras el bot está corriendo; puede corromper la sesión de Chromium. No encolar dos deploys consecutivos sin esperar que el anterior finalice.
 
 ## Prueba manual futura
 

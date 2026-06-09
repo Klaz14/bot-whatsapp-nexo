@@ -11,7 +11,7 @@ Este archivo complementa a `AGENTS.md` con la identidad del proyecto, el mapa ar
 ## 2. Identidad del proyecto
 
 - **Codename:** `ruben-botta-el-renacido`
-- **Versión actual:** V0.6 + PDF→JPG conversion + 49 grupos productivos (26/05/2026)
+- **Versión actual:** V0.6 + PDF→JPG conversion + 54 grupos productivos + patch whatsapp-web.js (incidente ready_timeout 04-05/06/2026)
 - **WhatsApp profile name:** Rubén Botta LA RESURRECCIÓN
 - **Relación con el bot anterior:** reemplazo completo del bot `bot-whatsapp-drive` original. Mismo repositorio, misma estructura de código. Las credenciales Google y el token OAuth se renuevan por completo (nuevos `credentials.json` y `token.json`).
 - **Carpeta Drive raíz:** se reutiliza la carpeta `Entrantes` existente (`GOOGLE_DRIVE_FOLDER_ID` se mantiene sin cambios).
@@ -36,6 +36,7 @@ La idempotencia se garantiza con un store local (`processed-messages.json`) que 
 - **QR terminal:** `qrcode-terminal`
 - **PDF→JPG conversion:** `node-poppler@^9.1.2` para convertir primera página de PDFs a JPEG (DPI 200). Requiere `poppler-utils` y `poppler-data` instalados en imagen Docker (para Railway/Linux)
 - **Gestor de paquetes:** npm — instalar siempre con `npm ci`
+- **Patch local de whatsapp-web.js:** `patches/Client.js` sobrescribe `node_modules/whatsapp-web.js/src/Client.js` en el build Docker (ver `Dockerfile`). Activo desde 05/06/2026 para compatibilidad con WhatsApp Web familia 2.3000.x (incidente ready_timeout / issue #3971). Ver sección 11 y NEKO_LOG.md.
 
 ---
 
@@ -125,6 +126,8 @@ node scripts/auditPendingTransfers.js   # auditoría read-only de pendientes en 
 | Extender auditoría de pendientes | `src/services/pendingAuditService.js`, `scripts/auditPendingTransfers.js` |
 | Verificar estructura de Volume en Railway | `scripts/checkRailwayData.js` (extender `REQUIRED_ITEMS`) |
 | Cambiar lógica de conversión PDF→JPG | `src/utils/pdfConverter.js`, `src/handlers/messageHandler.js` (bloque conversión), `Dockerfile` (deps poppler) |
+| Modificar excepción de blacklist por grupo | `src/services/blockedSenders.js`, `src/config/env.js`, variable `BLACKLIST_EXEMPT_GROUPS_JSON` |
+| Actualizar o revisar el patch de whatsapp-web.js | `patches/Client.js`, `Dockerfile` (línea COPY patches/) |
 
 ---
 
@@ -146,6 +149,9 @@ node scripts/auditPendingTransfers.js   # auditoría read-only de pendientes en 
 - **P4 — Conversión PDF sin límite de concurrencia (MEDIA, identificada en audit del 27/05/2026):** `pdfConverter.js` no limita la cantidad de conversiones simultáneas. Si llegan 10 PDFs en paralelo, se spawnean 10 procesos `pdftocairo` concurrentes que rasterizan a 200 DPI. Riesgo de pico de RAM/CPU u OOM-kill del container Railway, con pérdida de comprobantes en vuelo. Fix recomendado: semáforo / pool de concurrencia limitando a 2-3 conversiones simultáneas.
 - **P6 — Handler fire-and-forget sin cola global (MEDIA, identificada en audit del 27/05/2026):** `client.on('message', handler)` dispara handlers en paralelo sin queue interna ni backpressure. Si llegan N mensajes simultáneos, se procesan N handlers concurrentes. La subida a Drive queda serializada por `withFolderLock`, pero descarga + conversión PDF + dedup corren todas en paralelo sin límite. Amplifica P4. Fix recomendado: cola interna de trabajo con worker pool de N=2-3, que también resuelve P4 con el mismo mecanismo.
 - **Retry genérico en `uploadWithRetry` (BAJA, identificada en audit del 27/05/2026):** el retry actual no diferencia errores retryables (429, 5xx) de no retryables (4xx permanentes) y no respeta el header `Retry-After` que Drive envía en 429. Desperdicia reintentos en errores permanentes. Fix recomendado: detección de status code + respeto de Retry-After + jitter.
+- **Patch local de whatsapp-web.js — revisión ante updates del paquete:** `patches/Client.js` es una copia modificada de `Client.js` 1.34.7 que resuelve la incompatibilidad con WhatsApp Web 2.3000.x (ready_timeout / issue #3971, incidente 04-05/06/2026). Si se actualiza `whatsapp-web.js` en `package.json`, el patch puede quedar desincronizado con el nuevo `Client.js`. **Antes de cualquier update del paquete, comparar diff entre `patches/Client.js` y el nuevo `Client.js` y decidir si el patch sigue siendo necesario o puede removerse.** Deploy cycle para builds parcheados: (1) pausar con `tail -f /dev/null`; (2) commit+push; (3) SSH: `find /data/.wwebjs_auth/ -name "Singleton*" -delete`; (4) despausar (Custom Start Command vacío); (5) smoke test.
+- **Bug operationalNotifier — cachedChats eliminado pero pre-ready sigue pendiente:** el 28/05/2026 se eliminó `cachedChats` (cache que amplificaba el bug). El bug de fondo (resolución de grupos en init, antes de `ready`) permanece como deuda. Fix sugerido: lazy resolution — resolver solo en el momento de enviar; si grupo no existe, loguear warning y continuar.
+- **`BLACKLIST_EXEMPT_GROUPS_JSON` desacoplada de blacklist global:** env var agregada el 28/05/2026. Los grupos listados en esta variable ignoran `blocked-senders.json`. Si no se define o está vacía, comportamiento idéntico al anterior. Ver `src/services/blockedSenders.js`.
 
 ---
 
