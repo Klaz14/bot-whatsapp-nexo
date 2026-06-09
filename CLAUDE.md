@@ -11,7 +11,7 @@ Este archivo complementa a `AGENTS.md` con la identidad del proyecto, el mapa ar
 ## 2. Identidad del proyecto
 
 - **Codename:** `ruben-botta-el-renacido`
-- **Versión actual:** V0.6 + PDF→JPG conversion + 54 grupos productivos + patch whatsapp-web.js (incidente ready_timeout 04-05/06/2026)
+- **Versión actual:** V0.6 + PDF→JPG conversion + PDF multi-comprobante + 54 grupos productivos + patch whatsapp-web.js (incidente ready_timeout 04-05/06/2026)
 - **WhatsApp profile name:** Rubén Botta LA RESURRECCIÓN
 - **Relación con el bot anterior:** reemplazo completo del bot `bot-whatsapp-drive` original. Mismo repositorio, misma estructura de código. Las credenciales Google y el token OAuth se renuevan por completo (nuevos `credentials.json` y `token.json`).
 - **Carpeta Drive raíz:** se reutiliza la carpeta `Entrantes` existente (`GOOGLE_DRIVE_FOLDER_ID` se mantiene sin cambios).
@@ -126,7 +126,9 @@ node scripts/auditPendingTransfers.js   # auditoría read-only de pendientes en 
 | Cambiar safety flags o dry-run | Variables `BOT_PROCESSING_ENABLED`, `BOT_DRY_RUN`, `ALLOW_REAL_*` |
 | Extender auditoría de pendientes | `src/services/pendingAuditService.js`, `scripts/auditPendingTransfers.js` |
 | Verificar estructura de Volume en Railway | `scripts/checkRailwayData.js` (extender `REQUIRED_ITEMS`) |
-| Cambiar lógica de conversión PDF→JPG | `src/utils/pdfConverter.js`, `src/handlers/messageHandler.js` (bloque conversión), `Dockerfile` (deps poppler) |
+| Cambiar lógica de conversión PDF→JPG (1ª página) | `src/utils/pdfConverter.js` (`convertPdfFirstPageToJpg`), `src/handlers/messageHandler.js` (bloque conversión), `Dockerfile` (deps poppler) |
+| Cambiar lógica de PDF multi-comprobante (N páginas) | `src/utils/pdfConverter.js` (`getPdfPageCount`, `convertPdfPageRangeToJpgs`), `src/services/driveService.js` (`uploadPdfPagesWithRetry`), `src/handlers/messageHandler.js` (early path, variable `enqueueRawPdf`), `src/services/pendingProcessor.js` (bifurcación PDF vs JPEG), `src/config/env.js` (variable `PDF_BATCH_SIZE`), `src/utils/fileNames.js` (parámetro `pageNumber`) |
+| Descargar archivo de Drive como buffer (pending PDF) | `src/services/driveService.js` (`downloadFileAsBuffer`) |
 | Modificar excepción de blacklist por grupo | `src/services/blockedSenders.js`, `src/config/env.js`, variable `BLACKLIST_EXEMPT_GROUPS_JSON` |
 | Actualizar o revisar el patch de whatsapp-web.js | `patches/Client.js`, `Dockerfile` (línea COPY patches/) |
 

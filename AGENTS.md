@@ -46,7 +46,7 @@ Este proyecto es un bot Node.js standalone que escucha grupos permitidos de What
 - No cambiar scopes OAuth sin una fase explicita y documentada.
 - Si cambia OAuth o sus envs, actualizar `README.md` y `.env.example`.
 - Mantener la organizacion de comprobantes en Drive como archivos planos en `PULL TRANSFERENCIAS/` (sin subcarpetas por grupo ni fecha; grupo identificado por TAG en filename) salvo fase explicita.
-- Mantener el naming de comprobantes como `<ID>_<DDMM>_<HHmm>_<TAG>.<ext>` salvo fase explicita; el ID es incremental por día calendario, resetea con cada nuevo día.
+- Mantener el naming de comprobantes como `<ID>_<DDMM>_<HHmm>_<TAG>.<ext>` salvo fase explicita; el ID es incremental por día calendario, resetea con cada nuevo día. Para PDFs multi-comprobante (más de 1 página), todas las páginas del mismo PDF comparten el MISMO ID y se diferencia con un sufijo `_N` tras el TAG: `<ID>_<DDMM>_<HHmm>_<TAG>_<N>.<ext>` (donde N es el número de página, comenzando en 1). Imágenes y PDFs de 1 página mantienen el formato sin sufijo (backward-compatible).
 - No reemplazar el ID diario por un contador global ni por un contador solo en memoria.
 - No ampliar el patron de secuencia a `^\d+_`; contar solo archivos que cumplan el formato completo del bot `<ID>_<DDMM>_<HHmm>_<TAG>.<ext>`.
 - No crear carpetas reales en Drive durante auditorias o validaciones automaticas.

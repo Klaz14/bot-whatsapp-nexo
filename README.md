@@ -248,15 +248,17 @@ Cuando el bot esta listo, escucha mensajes de grupos configurados. Si el mensaje
 
 Para esta fase, toda imagen o PDF recibido en un grupo configurado se considera comprobante. No hay OCR, IA, reconocimiento visual, lectura bancaria ni validacion semantica del contenido.
 
-#### Conversion PDF → JPG
+#### Conversion PDF → comprobantes JPEG
 
-Los PDFs se convierten automaticamente a JPEG (primera página únicamente, DPI 200) antes de ser subidos a Drive, porque sistemas downstream (OCR) solo procesan imagenes, no PDFs.
+Los PDFs se convierten automaticamente a JPEG antes de ser subidos a Drive, porque sistemas downstream (OCR) solo procesan imagenes, no PDFs. **Cada página del PDF se trata como un comprobante independiente.**
 
 - **Entrada:** PDF en cualquier tamaño o cantidad de páginas
-- **Proceso:** conversión de la primera página via `node-poppler`
-- **Salida:** JPEG de 200 DPI, archivo convertido sigue el flujo normal de upload/pending
-- **Nombre final:** sigue patrón `<ID>_<DDMM>_<HHmm>_<TAG>.jpg` (extension es siempre `.jpg`, nunca `.pdf`)
-- **Errores:** si la conversion falla (PDF corrupto, encriptado, sin páginas), el bot loguea el error, notifica al grupo administrador via canal de alertas, y NO marca el mensaje como procesado (queda disponible para reintento manual)
+- **Proceso:** conversión de cada página a JPEG (200 DPI) via `node-poppler`
+- **Salida (PDF de 1 página o imagen):** un solo JPEG, mismo naming que siempre: `<ID>_<DDMM>_<HHmm>_<TAG>.jpg`
+- **Salida (PDF de N páginas, N > 1):** N archivos JPEG, todos con el MISMO ID secuencial y un sufijo `_N` tras el TAG: `<ID>_<DDMM>_<HHmm>_<TAG>_1.jpg`, `<ID>_<DDMM>_<HHmm>_<TAG>_2.jpg`, ..., `<ID>_<DDMM>_<HHmm>_<TAG>_N.jpg`
+- **Conversión por lotes:** las páginas se convierten en lotes de `PDF_BATCH_SIZE` (default 30) para controlar uso de memoria. Los buffers de cada lote se liberan al terminar
+- **Best-effort por página:** si un lote o una página falla la subida, las páginas fallidas se registran como error pero el resto del PDF continúa procesándose
+- **Errores:** si la conversión completa falla (PDF corrupto, encriptado, sin páginas), el bot loguea el error, notifica al grupo administrador via canal de alertas, y NO marca el mensaje como procesado (queda disponible para reintento manual)
 
 Imagenes (JPG, PNG, WebP, GIF) y otros tipos permitidos se suben tal cual, sin conversion.
 
@@ -280,13 +282,21 @@ Los archivos se nombran con:
 <ID>_<DDMM>_<HHmm>_<TAG>.<ext>
 ```
 
+Para PDFs multi-comprobante (más de 1 página), todas las páginas del PDF comparten el MISMO ID y se diferencian con sufijo `_N`:
+
+```text
+<ID>_<DDMM>_<HHmm>_<TAG>_<N>.<ext>
+```
+
 Ejemplos:
 
 ```text
-1_0505_2243_BT.jpg
-2_0505_2248_BT.pdf
-3_0505_2252_BT.jpg
-1_0506_0915_BT.jpg
+1_0505_2243_BT.jpg          ← imagen o PDF de 1 página (sin sufijo)
+2_0505_2248_BT_1.jpg        ← página 1 de un PDF de 3 páginas
+2_0505_2248_BT_2.jpg        ← página 2 (mismo ID que página 1)
+2_0505_2248_BT_3.jpg        ← página 3 (mismo ID)
+3_0505_2252_BT.jpg          ← siguiente comprobante (ID +1)
+1_0506_0915_BT.jpg          ← nuevo día, ID resetea a 1
 ```
 
 El `ID` es incremental por día calendario (resetea cada día). Para calcularlo, el bot lista todos los archivos en `PULL TRANSFERENCIAS/` y toma en cuenta solo nombres que cumplen el formato completo `<ID>_<DDMM>_<HHmm>_<TAG>.<ext>`, con DDMM y hora valida. Dentro de un mismo día (mismo DDMM), el bot incrementa el ID. Archivos manuales o con formato parcial se ignoran para evitar saltos artificiales en la secuencia.
@@ -328,12 +338,15 @@ Los dias no habiles se cargan manualmente en `nonBusinessDates` con formato `YYY
 
 Los comprobantes recibidos fuera de horario se guardan temporalmente en Drive como pendientes. Los mensajes dentro del horario operativo siguen procesandose como antes.
 
+**PDFs multi-comprobante fuera de horario:** si un PDF tiene más de 1 página y llega fuera de horario, el PDF crudo (sin convertir) se encola como pendiente. La conversión página por página ocurre al procesar el pendiente (no al encolar), para diferir el costo de conversión al horario operativo. PDFs de 1 página siguen el flujo anterior (se convierte la primera página y se encola el JPEG).
+
 La carpeta raiz de pendientes se puede configurar con:
 
 ```env
 GOOGLE_DRIVE_PENDING_FOLDER_ID=
 PENDING_PROCESSOR_INTERVAL_MINUTES=5
 PENDING_PROCESSOR_MAX_ATTEMPTS=3
+PDF_BATCH_SIZE=30
 ```
 
 Si esa variable no esta definida, el bot busca o crea una carpeta llamada:
