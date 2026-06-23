@@ -1,6 +1,16 @@
 const http = require('http');
 const qrcode = require('qrcode-terminal');
 const pLimit = require('p-limit');
+
+// Workaround: node-fetch/Gunzip falla con respuestas gzip en Node.js 22.
+// Deshabilitar Accept-Encoding: gzip globalmente para gaxios (HTTP client de googleapis)
+// para evitar el error "Premature close" al renovar el token OAuth de Drive.
+try {
+  const { instance: gaxiosInst } = require('gaxios');
+  gaxiosInst.defaults = gaxiosInst.defaults || {};
+  gaxiosInst.defaults.headers = { ...(gaxiosInst.defaults.headers || {}), 'Accept-Encoding': 'identity' };
+  console.log('[GAXIOS] Accept-Encoding=identity (workaround node-fetch/gzip/Node22)');
+} catch (_) {}
 const { loadConfig } = require('./config/env');
 const { createDriveService } = require('./services/driveService');
 const { createLogService } = require('./services/logService');
