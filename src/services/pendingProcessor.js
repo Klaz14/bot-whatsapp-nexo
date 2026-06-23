@@ -39,7 +39,7 @@ async function markPendingFailed(driveService, file, metadata, err) {
   return attempts;
 }
 
-async function processSinglePendingFile({ driveService, processedStore, file, operationalNotifier, maxAttempts = 3 }) {
+async function processSinglePendingFile({ driveService, processedStore, file, operationalNotifier, statsStore, maxAttempts = 3 }) {
   const metadata = parsePendingAppProperties(file.appProperties);
   const missing = validatePendingMetadata(metadata);
   if (missing.length) {
@@ -135,6 +135,15 @@ async function processSinglePendingFile({ driveService, processedStore, file, op
       );
     }
 
+    // MOD-04 O3: metrica de subida fuera de horario, clasificada por el timestamp ORIGINAL.
+    if (statsStore) {
+      const od = new Date(metadata.originalMessageAtUtc || metadata.originalMessageAtLocal);
+      statsStore.recordUpload({
+        tag: metadata.tag,
+        groupName: metadata.groupFolderName,
+        messageDate: Number.isFinite(od.getTime()) ? od : new Date(),
+      });
+    }
     return {
       ok: true,
       skipped: false,
@@ -189,8 +198,10 @@ async function processPendingForOperationalDate({
   driveService,
   processedStore,
   operationalNotifier,
+  statsStore,
   now = new Date(),
   calendar,
+  force = false,
 } = {}) {
   const activeCalendar = calendar || loadBusinessCalendar(config.paths.businessCalendar, {
     onWarning: (warning) => {
@@ -204,7 +215,9 @@ async function processPendingForOperationalDate({
       );
     },
   });
-  if (!shouldRunPendingProcessor(now, activeCalendar)) {
+  // MOD-04 /forzar: force=true saltea el gate de horario (caso de uso: el operador
+  // adelanta el procesamiento antes de las 9 o por necesidad operativa).
+  if (!force && !shouldRunPendingProcessor(now, activeCalendar)) {
     console.log('[PENDING PROCESSOR] skipped outside business hours');
     return {
       skipped: true,
@@ -247,6 +260,7 @@ async function processPendingForOperationalDate({
       processedStore,
       file,
       operationalNotifier,
+      statsStore,
       maxAttempts: config.pendingProcessor.maxAttempts,
     });
     if (result.ok) {
@@ -269,11 +283,11 @@ async function processPendingForOperationalDate({
   };
 }
 
-function createPendingProcessor({ config, driveService, processedStore, operationalNotifier }) {
+function createPendingProcessor({ config, driveService, processedStore, operationalNotifier, statsStore }) {
   let running = false;
   let timer;
 
-  async function runOnce(now = new Date()) {
+  async function runOnce({ now = new Date(), force = false } = {}) {
     if (running) {
       return {
         skipped: true,
@@ -288,7 +302,9 @@ function createPendingProcessor({ config, driveService, processedStore, operatio
         driveService,
         processedStore,
         operationalNotifier,
+        statsStore,
         now,
+        force,
       });
     } catch (err) {
       console.error('[PENDING PROCESSOR] error:', maskSensitiveText(err && err.message));

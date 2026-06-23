@@ -11,7 +11,22 @@ const { Poppler } = require('node-poppler');
 
 const poppler = new Poppler();
 
+// F0.3: semaforo de conversion. Cada conversion lanza un pdftocairo que rasteriza a
+// 200 DPI; sin limite, una rafaga de PDFs puede spawnear decenas de procesos y voltear
+// el contenedor por OOM. Limitamos las conversiones simultaneas (lazy para leer el env
+// despues de que loadConfig() cargue el .env).
+const pLimit = require('p-limit');
+let pdfLimit;
+function getPdfLimit() {
+  if (!pdfLimit) pdfLimit = pLimit(Number(process.env.PDF_CONCURRENCY) || 2);
+  return pdfLimit;
+}
+
 async function convertPdfFirstPageToJpg(pdfBuffer) {
+  return getPdfLimit()(() => _convertPdfFirstPageToJpg(pdfBuffer));
+}
+
+async function _convertPdfFirstPageToJpg(pdfBuffer) {
   const uid = `${Date.now()}_${Math.random().toString(16).slice(2, 10)}`;
   const tmpPdf = path.join(os.tmpdir(), `pdf_in_${uid}.pdf`);
   const tmpOutBase = path.join(os.tmpdir(), `pdf_out_${uid}`);
@@ -77,6 +92,10 @@ async function getPdfPageCount(pdfBuffer) {
 // El finally borra TODOS los temporales generados para este uid (tanto el PDF de entrada
 // como los jpg de salida), incluso si la conversión falla a mitad.
 async function convertPdfPageRangeToJpgs(pdfBuffer, fromPage, toPage) {
+  return getPdfLimit()(() => _convertPdfPageRangeToJpgs(pdfBuffer, fromPage, toPage));
+}
+
+async function _convertPdfPageRangeToJpgs(pdfBuffer, fromPage, toPage) {
   if (!Number.isInteger(fromPage) || !Number.isInteger(toPage) || fromPage < 1 || fromPage > toPage) {
     return [];
   }

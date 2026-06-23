@@ -61,15 +61,34 @@ function getBusinessCalendar(config, operationalNotifier) {
   });
 }
 
-function createMessageHandler({ config, driveService, logService, processedStore, operationalNotifier }) {
+function createMessageHandler({ config, driveService, logService, processedStore, operationalNotifier, groupsCache, statsStore, blacklistCache }) {
+  // Lock en memoria por messageKey: cierra la race entre handlers concurrentes
+  // (has() persistente cubre el dedup entre reinicios; esto, el del mismo proceso).
+  const inFlight = new Set();
+
   return async function handleMessage(msg) {
+    let reservedKey = null;
+    // Acuse visual: reacciona al mensaje del comprobante (best-effort, nunca rompe el flujo).
+    async function reactSafe(emoji) {
+      if (!config.reactOnProcessed) return;
+      try { await msg.react(emoji); } catch (_) { /* reaccion best-effort */ }
+    }
     try {
       if (!config.processingEnabled) return;
 
       const chat = await msg.getChat();
       if (!chat.isGroup) return;
 
-      const tag = config.whatsapp.groups[chat.name];
+      // MOD-01: el TAG sale del cache de Sheets si esta activo — por ID estable del chat
+      // primero (evita el bug de "primero gana" con grupos homonimos), fallback a nombre;
+      // si el cache no esta activo, de config.json (legacy).
+      let tag;
+      if (groupsCache) {
+        const chatId = chat.id && chat.id._serialized;
+        tag = groupsCache.getTagById(chatId) || groupsCache.getTag(chat.name);
+      } else {
+        tag = config.whatsapp.groups[chat.name];
+      }
       if (!tag) return;
 
       if (!msg.hasMedia) return;
@@ -77,21 +96,28 @@ function createMessageHandler({ config, driveService, logService, processedStore
       const authorId = msg.author || '';
       const fromId = msg.from || '';
       const senderId = authorId || fromId || 'unknown';
-      const blockedNumbers = loadBlockedSenders(config.paths.blockedSenders || getDefaultBlockedSendersPath(), {
-        onWarning: (warning) => {
-          notifySafely(
-            operationalNotifier,
-            'notifyWarning',
-            'blocked_senders_invalid',
-            'Blacklist local invalida; se ignora temporalmente.',
-            { reason: warning && warning.reason },
-            { dedupeKey: 'blocked-senders-invalid' }
-          );
-        },
-      });
-      const blocked = isSenderBlocked(senderId, blockedNumbers);
-      const exemptGroups = config.blacklistExemptGroups || [];
-      const isExempt = exemptGroups.includes(chat.name);
+      // MOD-02: blacklist + grupos exentos desde Sheets si esta activa; si no, archivo local (legacy).
+      let blocked;
+      let isExempt;
+      if (blacklistCache) {
+        blocked = blacklistCache.isBlocked(senderId);
+        isExempt = blacklistCache.isExempt(chat.name);
+      } else {
+        const blockedNumbers = loadBlockedSenders(config.paths.blockedSenders || getDefaultBlockedSendersPath(), {
+          onWarning: (warning) => {
+            notifySafely(
+              operationalNotifier,
+              'notifyWarning',
+              'blocked_senders_invalid',
+              'Blacklist local invalida; se ignora temporalmente.',
+              { reason: warning && warning.reason },
+              { dedupeKey: 'blocked-senders-invalid' }
+            );
+          },
+        });
+        blocked = isSenderBlocked(senderId, blockedNumbers);
+        isExempt = (config.blacklistExemptGroups || []).includes(chat.name);
+      }
       console.log(
         `[blacklist] author=${formatBlacklistSender(authorId)} ` +
         `from=${formatBlacklistSender(fromId)} ` +
@@ -119,7 +145,7 @@ function createMessageHandler({ config, driveService, logService, processedStore
       }
 
       const messageKey = buildMessageKey(msg, chat);
-      if (messageKey && processedStore.has(messageKey)) {
+      if (messageKey && (processedStore.has(messageKey) || inFlight.has(messageKey))) {
         logService.duplicateEvent({
           timestamp: new Date().toISOString(),
           chatName: chat.name,
@@ -127,11 +153,58 @@ function createMessageHandler({ config, driveService, logService, processedStore
         });
         return;
       }
+      if (messageKey) { inFlight.add(messageKey); reservedKey = messageKey; }
 
       const messageDate = getMessageDate(msg);
       const businessCalendar = getBusinessCalendar(config, operationalNotifier);
       const processNow = isWithinBusinessHours(messageDate, businessCalendar);
       const operationalDate = getOperationalDateForMessage(messageDate, businessCalendar);
+
+      // F0.1/F0.2: fallback durable. Si una subida en vivo agota reintentos o un PDF
+      // no se puede convertir, encolamos el comprobante a pendientes en vez de perderlo
+      // (el pendingProcessor lo reintenta). Reusa la misma metadata que el flujo
+      // fuera-de-horario y NO marca processed (eso lo hace el processor al subir OK).
+      async function enqueueToPending({ buffer: bufferToQueue, mimeType: mimeToQueue, media: mediaInfo, reason }) {
+        try {
+          if (messageKey) {
+            const existing = await driveService.findPendingByMessageKey(messageKey);
+            if (existing) {
+              console.log(`[PENDING-FALLBACK ${reason}] ya encolado, no se duplica -> ${existing.folderPath}/${existing.name}`);
+              return;
+            }
+          }
+          const operationalDateText = getBusinessDateString(operationalDate, businessCalendar);
+          const result = await driveService.createPendingUpload({
+            buffer: bufferToQueue,
+            mimeType: mimeToQueue,
+            originalFilename: mediaInfo && mediaInfo.filename,
+            messageDate,
+            operationalDate,
+            metadata: {
+              messageKey,
+              pendingStatus: 'queued',
+              groupName: chat.name,
+              groupFolderName: sanitizeDriveFolderName(chat.name, 'grupo', 80),
+              tag,
+              mimeType: mimeToQueue,
+              originalMessageDate: messageDate,
+              operationalDate: operationalDateText,
+              queuedAt: new Date().toISOString(),
+              attempts: 0,
+            },
+          });
+          console.log(`[PENDING-FALLBACK ${reason}] ${maskSensitiveText(chat.name, 80)} -> ${result.folderPath}/${result.name}`);
+        } catch (enqueueErr) {
+          console.error(`[PENDING-FALLBACK ${reason}] no se pudo encolar: ${maskSensitiveText(enqueueErr && enqueueErr.message)}`);
+          notifySafely(
+            operationalNotifier,
+            'notifyError',
+            'pending_enqueue_failed',
+            'No se pudo guardar comprobante en pendientes tras fallo de subida.',
+            { group: chat.name, tag, error: enqueueErr }
+          );
+        }
+      }
 
       if (!processNow && messageKey) {
         const existingPending = await driveService.findPendingByMessageKey(messageKey);
@@ -191,6 +264,8 @@ function createMessageHandler({ config, driveService, logService, processedStore
                   );
                 }
               }
+              if (statsStore) statsStore.recordUpload({ tag, groupName: chat.name, messageDate });
+              await reactSafe('👍'); // acuse: PDF multi-pagina subido OK
             } else {
               notifySafely(
                 operationalNotifier,
@@ -228,6 +303,10 @@ function createMessageHandler({ config, driveService, logService, processedStore
                 error: err,
               }
             );
+            // F0.1: fallo total de la subida multi-pagina -> encolar el PDF crudo a
+            // pendientes (el pendingProcessor re-rasteriza y reintenta). El fallo PARCIAL
+            // (algunas paginas OK) NO se reencola para no duplicar; tracking por pagina = P2.
+            await enqueueToPending({ buffer, mimeType: 'application/pdf', media, reason: 'multipage_live' });
           }
           return;
           // pageCount == 1 -> NO retorna; cae al flujo normal de abajo (intacto)
@@ -258,7 +337,7 @@ function createMessageHandler({ config, driveService, logService, processedStore
             operationalNotifier,
             'notifyError',
             'pdf_conversion_failed',
-            'Fallo convirtiendo PDF a imagen para mensaje recibido.',
+            'Fallo convirtiendo PDF a imagen; se encola el PDF crudo para reintento.',
             {
               group: chat.name,
               tag,
@@ -266,6 +345,10 @@ function createMessageHandler({ config, driveService, logService, processedStore
               error: err,
             }
           );
+          // F0.2: no descartar el PDF. Encolar el PDF ORIGINAL crudo a pendientes;
+          // el pendingProcessor lo re-rasteriza y sube. Evita la perdida silenciosa
+          // de todos los PDFs si falta poppler-utils en el contenedor.
+          await enqueueToPending({ buffer, mimeType: 'application/pdf', media, reason: 'pdf_conversion' });
           return;
         }
       }
@@ -303,6 +386,7 @@ function createMessageHandler({ config, driveService, logService, processedStore
             },
           });
           console.log(`[PENDING] ${maskSensitiveText(chat.name, 80)} -> ${result.folderPath}/${result.name}`);
+          await reactSafe('🕒'); // acuse: recibido fuera de horario, se sube al volver
         } catch (err) {
           logService.errorEvent({
             timestamp: new Date().toISOString(),
@@ -350,6 +434,8 @@ function createMessageHandler({ config, driveService, logService, processedStore
         });
         console.log(`[OK] ${chat.name} -> ${result.folderPath}/${filename}`);
         console.log(`     ${driveRef}`);
+        if (statsStore) statsStore.recordUpload({ tag, groupName: chat.name, messageDate });
+        await reactSafe('👍'); // acuse: comprobante subido a Entrantes
         if (messageKey) {
           try {
             processedStore.markProcessed(messageKey, { status: 'uploaded' });
@@ -384,7 +470,7 @@ function createMessageHandler({ config, driveService, logService, processedStore
           operationalNotifier,
           'notifyError',
           'drive_upload_failed',
-          'Fallo subiendo comprobante a Entrantes.',
+          'Fallo subiendo comprobante a Entrantes; se encola a pendientes para reintento.',
           {
             group: chat.name,
             tag,
@@ -392,6 +478,9 @@ function createMessageHandler({ config, driveService, logService, processedStore
             error: err,
           }
         );
+        // F0.1 (cierra P5): la subida en vivo agoto los reintentos. El mensaje de
+        // WhatsApp ya se consumio, asi que encolamos a pendientes para no perderlo.
+        await enqueueToPending({ buffer: processBuffer, mimeType: processMime, media, reason: 'upload_live' });
       }
     } catch (err) {
       console.error('[handler] error inesperado:', maskSensitiveText(err && err.message));
@@ -408,6 +497,8 @@ function createMessageHandler({ config, driveService, logService, processedStore
         'Error inesperado procesando mensaje recibido.',
         { error: err }
       );
+    } finally {
+      if (reservedKey) inFlight.delete(reservedKey);
     }
   };
 }

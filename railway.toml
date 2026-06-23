@@ -1,0 +1,15 @@
+# Railway — deploy del bot WhatsApp→Drive (kalaza)
+# F0.4: healthcheck contra /health (reporta el estado REAL de WhatsApp, no solo
+# "arranco") + restart automatico ante exit(1) del watchdog / disconnected.
+# OJO: la persistencia (sesion, processedStore) debe vivir en el Volume /data, si no
+# cada restart pediria QR. Ver F0.6 y DEPLOYMENT.md.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/health"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10

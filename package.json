@@ -1,12 +1,13 @@
 {
-  "name": "bot-whatsapp-drive",
+  "name": "bot-tt-kalaza",
   "version": "1.0.0",
   "private": true,
-  "description": "Bot que reenvía imágenes y PDFs de grupos específicos de WhatsApp a una carpeta de Google Drive.",
+  "description": "Bot que reenvía imágenes y PDFs de grupos específicos de WhatsApp a una carpeta de Google Drive (deployment kalaza).",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
     "auth": "node auth.js",
+    "test": "node scripts/test-offline.js",
     "setup:chrome": "npx puppeteer browsers install chrome"
   },
   "dependencies": {

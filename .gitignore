@@ -2,6 +2,7 @@ node_modules/
 .env
 .env.*
 !.env.example
+env
 .wwebjs_auth/
 .wwebjs_cache/
 credentials.json
@@ -17,3 +18,11 @@ processed-messages*.json
 blocked-senders.json
 business-calendar.json
 NEKO_LOG.md
+sheets-groups-cache.json
+sheets-groups-cache*.json
+sheets-blacklist-cache*.json
+sheets-credentials*.json
+*service-account*.json
+daily-stats.json
+daily-stats*.json
+weekly-report-state.json

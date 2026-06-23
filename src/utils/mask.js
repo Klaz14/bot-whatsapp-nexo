@@ -23,12 +23,6 @@ function maskPhone(value, visible = 4) {
   return `phone_${maskLongId(digits, visible)}`;
 }
 
-function maskSenderForFilename(value) {
-  const digits = String(value || '').replace(/\D/g, '');
-  if (!digits) return 'sender_unknown';
-  return `sender_${digits.slice(-4).padStart(4, 'x')}`;
-}
-
 function maskDriveLink(value) {
   if (!value) return '';
   return String(value)
@@ -63,6 +57,5 @@ module.exports = {
   maskDriveLink,
   maskLongId,
   maskPhone,
-  maskSenderForFilename,
   maskSensitiveText,
 };

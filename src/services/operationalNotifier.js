@@ -110,7 +110,7 @@ function createOperationalNotifier({
   let timer;
   let lastBusinessHoursState;
   let lastStateMessageKey = '';
-  const dedupedAlertKeys = new Set();
+  const dedupedAlertKeys = new Map(); // dedupeKey -> timestamp ms (con TTL, no de por vida)
   let shutdownHooksInstalled = false;
   let shutdownInProgress = false;
   let dailyNotifyInProgress = false;
@@ -355,16 +355,44 @@ function createOperationalNotifier({
     return sendPreparedMessage(buildOperationalMessage(type), { ...options, channel: 'status' });
   }
 
+  // Canal out-of-band (Telegram via fetch, sin dep) para alertas de severidad alta: la
+  // alerta llega aunque el WhatsApp del bot este caido (justo cuando mas hay que avisar).
+  async function sendOutOfBand(text) {
+    const ob = notifierConfig.outOfBand || {};
+    if (!ob.telegramToken || !ob.telegramChatId) return;
+    if (typeof fetch !== 'function') return;
+    try {
+      await fetch(`https://api.telegram.org/bot${ob.telegramToken}/sendMessage`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ chat_id: ob.telegramChatId, text }),
+      });
+    } catch (err) {
+      console.warn(`[OOB] alerta out-of-band fallo: ${maskSensitiveText(err && err.message)}`);
+    }
+  }
+
   async function notifyAlert(severity, eventType, message, details = {}, options = {}) {
     if (options.dedupeKey) {
-      if (dedupedAlertKeys.has(options.dedupeKey)) {
+      // Dedup con TTL: una condicion recurrente se re-alerta despues de alertDedupeTtlMs,
+      // en vez de silenciarse de por vida.
+      const ttlMs = notifierConfig.alertDedupeTtlMs || (30 * 60 * 1000);
+      const nowMs = nowProvider().getTime();
+      const lastMs = dedupedAlertKeys.get(options.dedupeKey);
+      if (lastMs !== undefined && (nowMs - lastMs) < ttlMs) {
         return { ok: false, reason: 'duplicate-alert' };
       }
-      dedupedAlertKeys.add(options.dedupeKey);
+      dedupedAlertKeys.set(options.dedupeKey, nowMs);
+    }
+
+    const formatted = formatAlertMessage(severity, eventType, message, details);
+    const sev = String(severity || '').toUpperCase();
+    if (sev === 'ERROR' || sev === 'CRITICAL') {
+      sendOutOfBand(formatted).catch(() => {});
     }
 
     return sendPreparedMessage(
-      formatAlertMessage(severity, eventType, message, details),
+      formatted,
       options.stateKey ? { stateKey: options.stateKey } : {}
     );
   }

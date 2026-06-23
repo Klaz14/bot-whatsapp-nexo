@@ -16,6 +16,14 @@ function getPhoneSuffix(value, visible = 4) {
   return normalized.slice(-visible).padStart(visible, 'x');
 }
 
+// Canonicaliza el "9" de moviles argentinos: 549XXXXXXXXXX (13) -> 54XXXXXXXXXX (12).
+// Asi un numero cargado con o sin el 9 matchea igual (el LID de WhatsApp suele traer el 9).
+function canonicalizePhone(value) {
+  const n = normalizePhoneNumber(value);
+  if (/^549\d{10}$/.test(n)) return `54${n.slice(3)}`;
+  return n;
+}
+
 function isFullSenderDebugEnabled(value = process.env.BLACKLIST_DEBUG_FULL_SENDER) {
   if (value === undefined || value === null) return false;
   return ['1', 'true', 'yes', 'on'].includes(String(value).trim().toLowerCase());
@@ -55,14 +63,19 @@ function loadBlockedSenders(filePath, options = {}) {
 }
 
 function isSenderBlocked(senderId, blockedNumbers) {
-  const normalizedSender = normalizePhoneNumber(senderId);
-  if (!normalizedSender) return false;
+  const canonicalSender = canonicalizePhone(senderId);
+  if (!canonicalSender) return false;
 
-  const normalizedBlockedNumbers = normalizeBlockedNumbers(blockedNumbers);
-  return normalizedBlockedNumbers.includes(normalizedSender);
+  const canonicalBlocked = new Set(
+    (Array.isArray(blockedNumbers) ? blockedNumbers : [])
+      .map(canonicalizePhone)
+      .filter(Boolean)
+  );
+  return canonicalBlocked.has(canonicalSender);
 }
 
 module.exports = {
+  canonicalizePhone,
   getDefaultBlockedSendersPath,
   getPhoneSuffix,
   isFullSenderDebugEnabled,

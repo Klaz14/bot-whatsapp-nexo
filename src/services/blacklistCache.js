@@ -1,0 +1,72 @@
+// MOD-02: cache en memoria + disco de la blacklist y los grupos exentos, leidos de
+// una planilla NUEVA del bot (separada de la de cotizaciones). Lookup O(1) por mensaje
+// (sin leer disco). Se recarga al arrancar y con /recargar. Si Sheets falla, conserva
+// el cache anterior. Patron identico a groupsCache.
+
+const fs = require('fs');
+const { canonicalizePhone } = require('./blockedSenders');
+
+function createBlacklistCache({ config, sheetsService }) {
+  let blockedSet = new Set();
+  let exemptSet = new Set();
+  let loadedAt = null;
+
+  function isBlocked(senderId) {
+    const n = canonicalizePhone(senderId);
+    return n ? blockedSet.has(n) : false;
+  }
+
+  function isExempt(groupName) {
+    return exemptSet.has(groupName);
+  }
+
+  function getNumbers() {
+    return Array.from(blockedSet);
+  }
+
+  function persist() {
+    try {
+      const tmp = `${config.blacklist.cachePath}.tmp`;
+      const data = {
+        loadedAt,
+        blockedNumbers: Array.from(blockedSet),
+        exemptGroups: Array.from(exemptSet),
+      };
+      fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
+      fs.renameSync(tmp, config.blacklist.cachePath);
+    } catch (err) {
+      console.warn('[BLACKLIST-CACHE] no se pudo persistir:', err && err.message);
+    }
+  }
+
+  function loadFromDisk() {
+    try {
+      if (!fs.existsSync(config.blacklist.cachePath)) return false;
+      const d = JSON.parse(fs.readFileSync(config.blacklist.cachePath, 'utf8'));
+      blockedSet = new Set((d.blockedNumbers || []).map(canonicalizePhone).filter(Boolean));
+      exemptSet = new Set((d.exemptGroups || []).map((g) => String(g).trim()).filter(Boolean));
+      loadedAt = d.loadedAt || null;
+      console.log(`[BLACKLIST-CACHE] cargado de disco: ${blockedSet.size} bloqueados, ${exemptSet.size} exentos.`);
+      return true;
+    } catch (err) {
+      console.warn('[BLACKLIST-CACHE] no se pudo leer el cache de disco:', err && err.message);
+      return false;
+    }
+  }
+
+  async function reload() {
+    const [nums, groups] = await Promise.all([
+      sheetsService.readBlacklist(),
+      sheetsService.readExemptGroups(),
+    ]);
+    blockedSet = new Set(nums.map(canonicalizePhone).filter(Boolean));
+    exemptSet = new Set(groups.map((g) => String(g).trim()).filter(Boolean));
+    loadedAt = new Date().toISOString();
+    persist();
+    return { blocked: blockedSet.size, exempt: exemptSet.size };
+  }
+
+  return { isBlocked, isExempt, getNumbers, reload, persist, loadFromDisk };
+}
+
+module.exports = { createBlacklistCache };

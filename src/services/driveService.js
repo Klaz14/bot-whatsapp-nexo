@@ -4,6 +4,7 @@ const { google } = require('googleapis');
 const { maskSensitiveText } = require('../utils/mask');
 const { buildSequentialUploadFilename } = require('../utils/fileNames');
 const { getPdfPageCount, convertPdfPageRangeToJpgs } = require('../utils/pdfConverter');
+const { isRetryableDriveError, retryWaitMs, httpStatusOf } = require('../utils/driveRetry');
 const {
   formatLocalDayMonthForFilename,
 } = require('../utils/time');
@@ -112,57 +113,7 @@ function createDriveService(config) {
   });
 
   const drive = google.drive({ version: 'v3', auth: oauth2 });
-  const folderCache = new Map();
   const folderLocks = new Map();
-
-  function cacheKey(parentId, folderName) {
-    return `${parentId}\0${folderName}`;
-  }
-
-  async function findFolderByName(parentId, folderName) {
-    const escapedParentId = escapeDriveQueryString(parentId);
-    const escapedFolderName = escapeDriveQueryString(folderName);
-    const res = await drive.files.list({
-      q: [
-        `mimeType = '${DRIVE_FOLDER_MIME}'`,
-        `name = '${escapedFolderName}'`,
-        `'${escapedParentId}' in parents`,
-        'trashed = false',
-      ].join(' and '),
-      fields: 'files(id, name, createdTime)',
-      orderBy: 'createdTime',
-      pageSize: 10,
-      supportsAllDrives: true,
-      includeItemsFromAllDrives: true,
-    });
-
-    const folders = res.data.files || [];
-    return folders[0] || null;
-  }
-
-  async function createFolder(parentId, folderName) {
-    const res = await drive.files.create({
-      requestBody: {
-        name: folderName,
-        mimeType: DRIVE_FOLDER_MIME,
-        parents: [parentId],
-      },
-      fields: 'id, name',
-      supportsAllDrives: true,
-    });
-
-    return res.data;
-  }
-
-  async function getOrCreateFolder(parentId, folderName) {
-    const key = cacheKey(parentId, folderName);
-    if (folderCache.has(key)) return folderCache.get(key);
-
-    const existing = await findFolderByName(parentId, folderName);
-    const folder = existing || await createFolder(parentId, folderName);
-    folderCache.set(key, folder);
-    return folder;
-  }
 
   // V0.6: estructura plana — retorna la raíz directamente, sin subcarpeta.
   async function resolveUploadFolder() {
@@ -303,10 +254,15 @@ function createDriveService(config) {
         };
       } catch (err) {
         lastErr = err;
-        if (i < attempts) {
-          const wait = 1000 * Math.pow(2, i - 1);
-          console.warn(`[upload] intento ${i}/${attempts} fallo: ${maskSensitiveText(err.message)}. Reintento en ${wait}ms`);
+        if (i < attempts && isRetryableDriveError(err)) {
+          const wait = retryWaitMs(err, i);
+          console.warn(`[upload] intento ${i}/${attempts} fallo (transitorio ${httpStatusOf(err) || 'net'}): ${maskSensitiveText(err.message)}. Reintento en ${wait}ms`);
           await new Promise((resolve) => setTimeout(resolve, wait));
+        } else {
+          if (!isRetryableDriveError(err)) {
+            console.warn(`[upload] error permanente (${httpStatusOf(err) || 'net'}): ${maskSensitiveText(err.message)}. No se reintenta, se propaga.`);
+          }
+          break; // permanente o ultimo intento -> propagar (el handler reencola a pending)
         }
       }
     }
@@ -410,10 +366,12 @@ function createDriveService(config) {
               break;
             } catch (err) {
               lastErr = err;
-              if (attempt < 3) {
-                const wait = 1000 * Math.pow(2, attempt - 1);
-                console.warn(`[upload] pagina ${page.pageNumber} intento ${attempt}/3 fallo: ${maskSensitiveText(err.message)}. Reintento en ${wait}ms`);
+              if (attempt < 3 && isRetryableDriveError(err)) {
+                const wait = retryWaitMs(err, attempt);
+                console.warn(`[upload] pagina ${page.pageNumber} intento ${attempt}/3 fallo (transitorio): ${maskSensitiveText(err.message)}. Reintento en ${wait}ms`);
                 await new Promise((resolve) => setTimeout(resolve, wait));
+              } else {
+                break; // permanente o ultimo intento
               }
             }
           }
@@ -610,8 +568,27 @@ function createDriveService(config) {
     return false;
   }
 
+  // Auditoria de cierre: IDs ya subidos a Entrantes para la fecha dada (por DDMM del
+  // filename). Sirve para detectar huecos en la secuencia diaria.
+  async function listUploadedIdsForDate(date = new Date()) {
+    if (config.dryRun || !config.safety.allowRealDriveUploads) return [];
+    const uploadFolder = await resolveUploadFolder({});
+    const names = await listFileNamesInFolder(uploadFolder.id);
+    const ddmm = formatLocalDayMonthForFilename(date, config.timeZone);
+    const ids = [];
+    for (const name of names) {
+      const m = SEQUENTIAL_UPLOAD_FILENAME_RE.exec(String(name || ''));
+      if (m && m[2] === ddmm) {
+        const id = Number(m[1]);
+        if (Number.isSafeInteger(id) && id > 0) ids.push(id);
+      }
+    }
+    return ids.sort((a, b) => a - b);
+  }
+
   return {
     cleanupEmptyPendingDayFolder,
+    listUploadedIdsForDate,
     createPendingUpload,
     copyPendingToEntrantes,
     deletePendingUpload,

@@ -222,6 +222,8 @@ function loadConfig() {
     timeZone: normalizeTimeZone(process.env.BOT_TIME_ZONE || DEFAULT_TIME_ZONE),
     dryRun: getBoolean('BOT_DRY_RUN', false),
     processingEnabled: getBoolean('BOT_PROCESSING_ENABLED', true),
+    // Acuse: reacciona al mensaje del comprobante (👍 subido / 🕒 encolado off-hours).
+    reactOnProcessed: getBoolean('REACT_ON_PROCESSED', true),
     blacklistExemptGroups,
     logLevel: process.env.BOT_LOG_LEVEL || 'info',
     logging: {
@@ -246,6 +248,7 @@ function loadConfig() {
       processedStore: resolveProjectPath(process.env.PROCESSED_STORE_PATH, 'processed-messages.json'),
       businessCalendar: resolveProjectPath(process.env.BUSINESS_CALENDAR_PATH, 'business-calendar.json'),
       blockedSenders: resolveProjectPath(process.env.BLOCKED_SENDERS_PATH, 'blocked-senders.json'),
+      statsStore: resolveProjectPath(process.env.STATS_STORE_PATH, 'daily-stats.json'),
     },
     processedStore: {
       ttlHours: getPositiveNumber('PROCESSED_STORE_TTL_HOURS', 720),
@@ -259,6 +262,69 @@ function loadConfig() {
     pdf: {
       batchSize: pdfBatchSize,
     },
+    concurrency: {
+      // F0.3: backpressure del handler en vivo. Limita cuantos mensajes se procesan
+      // en paralelo para evitar picos de RAM/CPU bajo rafaga (apertura/cierre).
+      handler: getPositiveNumber('HANDLER_CONCURRENCY', 3),
+    },
+    autoRecovery: {
+      // F0.4: anti-zombie. Si se cae la sesion, salir (exit 1) para que Railway
+      // reinicie y reconecte con la sesion persistida (REQUIERE rutas en /data).
+      enabled: getBoolean('AUTO_RECOVERY_ENABLED', true),
+      watchdogIntervalSeconds: getPositiveNumber('WATCHDOG_INTERVAL_SECONDS', 60),
+      watchdogMaxFailures: getPositiveNumber('WATCHDOG_MAX_FAILURES', 2),
+      // PORT lo provee Railway para el healthcheck; HEALTH_PORT es override manual.
+      healthPort: getPositiveNumber('PORT', getPositiveNumber('HEALTH_PORT', 3000)),
+    },
+    catchUp: {
+      // F0.5: al arrancar, reprocesar el backlog de mensajes con media que llegaron
+      // durante el outage (idempotencia via processedStore evita duplicados).
+      enabled: getBoolean('CATCHUP_ENABLED', true),
+      delaySeconds: getPositiveNumber('CATCHUP_DELAY_SECONDS', 30),
+      windowMinutes: getPositiveNumber('CATCHUP_WINDOW_MINUTES', 30),
+      fetchLimit: getPositiveNumber('CATCHUP_FETCH_LIMIT', 50),
+    },
+    sheets: {
+      // MOD-01: si GOOGLE_SHEETS_ID esta seteada, los grupos/TAGs salen de Sheets y
+      // las vars legacy (config.json / WHATSAPP_ALLOWED_GROUPS_JSON) se ignoran.
+      enabled: Boolean(process.env.GOOGLE_SHEETS_ID),
+      spreadsheetId: process.env.GOOGLE_SHEETS_ID || undefined,
+      sheetName: process.env.GOOGLE_SHEETS_SHEET_NAME || 'Hoja 1',
+      tagColumn: process.env.GOOGLE_SHEETS_TAG_COLUMN || 'E',
+      groupColumn: process.env.GOOGLE_SHEETS_GROUP_COLUMN || 'K',
+      credentialsPath: resolveProjectPath(process.env.GOOGLE_SHEETS_CREDENTIALS_PATH, undefined),
+      matchCaseSensitive: getBoolean('SHEETS_MATCH_CASE_SENSITIVE', false),
+      // Normalizacion de TAGs (SPEC nota 3): asis | upper | underscore | upper_underscore.
+      tagNormalize: process.env.SHEETS_TAG_NORMALIZE || 'upper_underscore',
+      cachePath: resolveProjectPath(process.env.SHEETS_GROUPS_CACHE_PATH, 'sheets-groups-cache.json'),
+      // Auto-recarga periodica de Sheets: reconoce grupos nuevos SIN deploy ni /recargar
+      // manual (basta agregar el bot al grupo listado en la planilla). 0 = desactivar.
+      reloadMinutes: getNumber('SHEETS_RELOAD_MINUTES', 15),
+    },
+    blacklist: {
+      // MOD-02: blacklist + grupos exentos desde una planilla NUEVA del bot (separada de
+      // cotizaciones). Si GOOGLE_SHEETS_BOT_CONFIG_ID no esta, se usa blocked-senders.json
+      // + BLACKLIST_EXEMPT_GROUPS_JSON como hoy (legacy). Usa el mismo Service Account.
+      enabled: Boolean(process.env.GOOGLE_SHEETS_BOT_CONFIG_ID),
+      botConfigId: process.env.GOOGLE_SHEETS_BOT_CONFIG_ID || undefined,
+      blacklistSheetName: process.env.GOOGLE_SHEETS_BLACKLIST_SHEET_NAME || 'BOT_BLACKLIST',
+      exemptSheetName: process.env.GOOGLE_SHEETS_EXEMPT_SHEET_NAME || 'BOT_EXEMPT',
+      cachePath: resolveProjectPath(process.env.SHEETS_BLACKLIST_CACHE_PATH, 'sheets-blacklist-cache.json'),
+    },
+    broadcast: {
+      // MOD-03: difusion masiva. Timeout de confirmacion y delay entre envios (anti-spam).
+      confirmTimeoutMs: getPositiveNumber('BROADCAST_CONFIRM_TIMEOUT_MS', 300000),
+      sendDelayMs: getNumber('BROADCAST_SEND_DELAY_MS', 1500),
+    },
+    weeklyReport: {
+      // MOD-05: informe semanal de errores via Claude API (fetch nativo, sin SDK).
+      enabled: getBoolean('WEEKLY_REPORT_ENABLED', true),
+      apiKey: process.env.ANTHROPIC_API_KEY || undefined,
+      model: process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001',
+      hour: getNumber('WEEKLY_REPORT_HOUR', 18),
+      lookbackDays: getPositiveNumber('WEEKLY_REPORT_LOOKBACK_DAYS', 7),
+      statePath: resolveProjectPath(process.env.WEEKLY_REPORT_STATE_PATH, 'weekly-report-state.json'),
+    },
     operationalNotifications: {
       enabled: getBoolean('OPERATIONAL_NOTIFICATIONS_ENABLED', true),
       alertGroupName: process.env.WHATSAPP_ALERT_GROUP_NAME || '',
@@ -270,6 +336,13 @@ function loadConfig() {
       notifyOnOffHours: getBoolean('OPERATIONAL_NOTIFY_ON_OFF_HOURS', true),
       notifyOnShutdown: getBoolean('OPERATIONAL_NOTIFY_ON_SHUTDOWN', false),
       statusCheckIntervalSeconds: getPositiveNumber('OPERATIONAL_STATUS_CHECK_INTERVAL_SECONDS', 60),
+      // Mejora: re-alertar condiciones recurrentes tras este TTL (no silenciar de por vida).
+      alertDedupeTtlMs: getPositiveNumber('ALERT_DEDUPE_TTL_MINUTES', 30) * 60 * 1000,
+      // Canal out-of-band (Telegram) para ERROR/CRITICAL: llega aunque el WhatsApp este caido.
+      outOfBand: {
+        telegramToken: process.env.ALERT_TELEGRAM_BOT_TOKEN || undefined,
+        telegramChatId: process.env.ALERT_TELEGRAM_CHAT_ID || undefined,
+      },
     },
     google: {
       driveFolderId: process.env.GOOGLE_DRIVE_FOLDER_ID || fileConfig.driveFolderId,
@@ -282,6 +355,8 @@ function loadConfig() {
     },
     whatsapp: {
       clientId: process.env.WHATSAPP_CLIENT_ID || undefined,
+      // MOD-03/04: grupo desde donde se operan los comandos y el broadcast.
+      controlGroupName: process.env.WHATSAPP_CONTROL_GROUP_NAME || undefined,
       groups: envGroups || fileConfig.groups || {},
       readyTimeoutSeconds: getPositiveNumber('WHATSAPP_READY_TIMEOUT_SECONDS', 120),
       webVersion: process.env.WHATSAPP_WEB_VERSION || undefined,
