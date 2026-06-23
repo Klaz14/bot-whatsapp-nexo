@@ -2,15 +2,27 @@ const http = require('http');
 const qrcode = require('qrcode-terminal');
 const pLimit = require('p-limit');
 
-// Workaround: node-fetch/Gunzip falla con respuestas gzip en Node.js 22.
-// Deshabilitar Accept-Encoding: gzip globalmente para gaxios (HTTP client de googleapis)
-// para evitar el error "Premature close" al renovar el token OAuth de Drive.
-try {
-  const { instance: gaxiosInst } = require('gaxios');
-  gaxiosInst.defaults = gaxiosInst.defaults || {};
-  gaxiosInst.defaults.headers = { ...(gaxiosInst.defaults.headers || {}), 'Accept-Encoding': 'identity' };
-  console.log('[GAXIOS] Accept-Encoding=identity (workaround node-fetch/gzip/Node22)');
-} catch (_) {}
+// Fix: node-fetch/Gunzip emite "Premature close" en Node.js 22 al descomprimir
+// respuestas gzip de oauth2.googleapis.com/token. Parcheamos https.request a nivel
+// global para forzar Accept-Encoding: identity en TODOS los requests salientes,
+// independientemente de qué librería los haga (gaxios top-level, google-auth-library
+// con su propio gaxios anidado, etc). Confirmado: https nativo con identity → HTTP 200 OK.
+(function patchHttpsAcceptEncoding() {
+  const https = require('https');
+  const orig = https.request;
+  https.request = function () {
+    for (const arg of arguments) {
+      if (arg && typeof arg === 'object' && !Buffer.isBuffer(arg) && arg.headers) {
+        const h = arg.headers;
+        const k = Object.keys(h).find((key) => key.toLowerCase() === 'accept-encoding');
+        if (k) h[k] = 'identity'; else h['Accept-Encoding'] = 'identity';
+        break;
+      }
+    }
+    return orig.apply(this, arguments);
+  };
+  console.log('[HTTPS-PATCH] Accept-Encoding=identity forzado globalmente (fix node-fetch/gzip/Node22)');
+}());
 const { loadConfig } = require('./config/env');
 const { createDriveService } = require('./services/driveService');
 const { createLogService } = require('./services/logService');
