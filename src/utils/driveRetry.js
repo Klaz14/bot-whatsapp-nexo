@@ -2,7 +2,9 @@
 // de permanente (propagar -> el handler reencola a pending). Sin deps externas para que
 // sea testeable offline.
 
-const RETRYABLE_NET_RE = /ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|EPIPE|ECONNREFUSED|socket hang up|network|timeout/i;
+// R5: "premature" cubre ERR_STREAM_PREMATURE_CLOSE / "Premature close" (bug gzip Node 22).
+// Si un premature se escapa del patch HTTPS, es transitorio -> reintentar, no fallar permanente.
+const RETRYABLE_NET_RE = /ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|EPIPE|ECONNREFUSED|socket hang up|network|timeout|premature/i;
 
 function httpStatusOf(err) {
   if (!err) return undefined;

@@ -245,6 +245,7 @@ function loadConfig() {
       uploadsLog: resolveProjectPath(process.env.LOG_UPLOADS_PATH, 'uploads.log'),
       errorsLog: resolveProjectPath(process.env.LOG_ERRORS_PATH, 'errors.log'),
       alertsLog: resolveProjectPath(process.env.ALERTS_LOG_PATH, 'alerts.log'),
+      heartbeat: resolveProjectPath(process.env.HEARTBEAT_PATH, 'heartbeat.json'),
       processedStore: resolveProjectPath(process.env.PROCESSED_STORE_PATH, 'processed-messages.json'),
       businessCalendar: resolveProjectPath(process.env.BUSINESS_CALENDAR_PATH, 'business-calendar.json'),
       blockedSenders: resolveProjectPath(process.env.BLOCKED_SENDERS_PATH, 'blocked-senders.json'),
@@ -283,6 +284,20 @@ function loadConfig() {
       delaySeconds: getPositiveNumber('CATCHUP_DELAY_SECONDS', 30),
       windowMinutes: getPositiveNumber('CATCHUP_WINDOW_MINUTES', 30),
       fetchLimit: getPositiveNumber('CATCHUP_FETCH_LIMIT', 50),
+      // B1/I1: override manual para caidas LARGAS. Si CATCHUP_SINCE tiene una fecha-hora
+      // LOCAL ("YYYY-MM-DD HH:mm"), el catch-up del proximo arranque recupera desde esa hora
+      // (en vez de windowMinutes) con un limite de mensajes mas alto. Uso eventual: setear ->
+      // reiniciar -> recupera -> BORRAR la var (el bot loguea un warning recordandolo).
+      since: (process.env.CATCHUP_SINCE || '').trim() || null,
+      manualFetchLimit: getPositiveNumber('CATCHUP_MANUAL_FETCH_LIMIT', 500),
+    },
+    heartbeat: {
+      // I2/R6: latido persistido para detectar cuanto estuvo caido el bot y avisar al
+      // revivir (aviso post-caida a los grupos de estado). Umbral: solo avisa si el downtime
+      // supera downtimeThresholdMinutes (evita ruido en redeploys normales, que son cortos).
+      enabled: getBoolean('HEARTBEAT_ENABLED', true),
+      intervalSeconds: getPositiveNumber('HEARTBEAT_INTERVAL_SECONDS', 60),
+      downtimeThresholdMinutes: getPositiveNumber('HEARTBEAT_DOWNTIME_THRESHOLD_MINUTES', 5),
     },
     sheets: {
       // MOD-01: si GOOGLE_SHEETS_ID esta seteada, los grupos/TAGs salen de Sheets y
@@ -293,6 +308,10 @@ function loadConfig() {
       tagColumn: process.env.GOOGLE_SHEETS_TAG_COLUMN || 'E',
       groupColumn: process.env.GOOGLE_SHEETS_GROUP_COLUMN || 'K',
       credentialsPath: resolveProjectPath(process.env.GOOGLE_SHEETS_CREDENTIALS_PATH, undefined),
+      // Alternativa a credentialsPath: el JSON del Service Account inline en una env var.
+      // Mas comodo y seguro en Railway (se guarda cifrado, sin subir archivos al volumen).
+      // Si esta seteada, tiene prioridad sobre credentialsPath.
+      credentialsJson: process.env.GOOGLE_SHEETS_CREDENTIALS_JSON || undefined,
       matchCaseSensitive: getBoolean('SHEETS_MATCH_CASE_SENSITIVE', false),
       // Normalizacion de TAGs (SPEC nota 3): asis | upper | underscore | upper_underscore.
       tagNormalize: process.env.SHEETS_TAG_NORMALIZE || 'upper_underscore',

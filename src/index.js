@@ -2,27 +2,12 @@ const http = require('http');
 const qrcode = require('qrcode-terminal');
 const pLimit = require('p-limit');
 
-// Fix: node-fetch/Gunzip emite "Premature close" en Node.js 22 al descomprimir
-// respuestas gzip de oauth2.googleapis.com/token. Parcheamos https.request a nivel
-// global para forzar Accept-Encoding: identity en TODOS los requests salientes,
-// independientemente de qué librería los haga (gaxios top-level, google-auth-library
-// con su propio gaxios anidado, etc). Confirmado: https nativo con identity → HTTP 200 OK.
-(function patchHttpsAcceptEncoding() {
-  const https = require('https');
-  const orig = https.request;
-  https.request = function () {
-    for (const arg of arguments) {
-      if (arg && typeof arg === 'object' && !Buffer.isBuffer(arg) && arg.headers) {
-        const h = arg.headers;
-        const k = Object.keys(h).find((key) => key.toLowerCase() === 'accept-encoding');
-        if (k) h[k] = 'identity'; else h['Accept-Encoding'] = 'identity';
-        break;
-      }
-    }
-    return orig.apply(this, arguments);
-  };
-  console.log('[HTTPS-PATCH] Accept-Encoding=identity forzado globalmente (fix node-fetch/gzip/Node22)');
-}());
+// R4: patch HTTPS extraido a modulo compartido (anti-drift). Se aplica ANTES de requerir
+// cualquier modulo que hable con Google (googleapis/gaxios), para interceptar antes de que
+// capturen la referencia a https.request. Ver src/utils/httpsIdentityPatch.js.
+const { applyHttpsIdentityPatch } = require('./utils/httpsIdentityPatch');
+applyHttpsIdentityPatch();
+
 const { loadConfig } = require('./config/env');
 const { createDriveService } = require('./services/driveService');
 const { createLogService } = require('./services/logService');
@@ -35,10 +20,13 @@ const { createSheetsService } = require('./services/sheetsService');
 const { createGroupsCache } = require('./services/groupsCache');
 const { createBlacklistCache } = require('./services/blacklistCache');
 const { createStatsStore } = require('./services/statsStore');
+const { createHeartbeatStore } = require('./services/heartbeatStore');
 const { createCommandHandler } = require('./handlers/commandHandler');
 const { createBroadcastHandler } = require('./handlers/broadcastHandler');
 const { createWeeklyReportService } = require('./services/weeklyReportService');
 const { maskSensitiveText } = require('./utils/mask');
+const { clearSingletonLocks } = require('./utils/sessionLocks');
+const { parseLocalDateTime, toLocalAuditString } = require('./utils/time');
 
 function startBot() {
   const config = loadConfig();
@@ -46,6 +34,9 @@ function startBot() {
   const logService = createLogService(config);
   const processedStore = createProcessedStore(config);
   const statsStore = createStatsStore(config); // MOD-04: metricas diarias
+  const heartbeatStore = createHeartbeatStore({ config }); // I2/R6: latido para detectar downtime
+  // Leer el ULTIMO latido ANTES de empezar a latir de nuevo: si es viejo, es el downtime del restart.
+  const lastHeartbeatMs = config.heartbeat.enabled ? heartbeatStore.readLast() : null;
   const client = createWhatsappClient(config);
   const operationalNotifier = createOperationalNotifier({ config, client });
   const pendingProcessor = createPendingProcessor({ config, driveService, processedStore, operationalNotifier, statsStore });
@@ -175,6 +166,22 @@ function startBot() {
     }
     // F0.4: watchdog de estado (detecta "vivo pero sordo").
     startWatchdog();
+    // I2/R6: aviso post-caida. Si el ultimo latido persistido es viejo, el bot estuvo caido
+    // ese tiempo -> avisar a los grupos de estado. Luego arrancar el latido periodico.
+    if (config.heartbeat.enabled) {
+      if (lastHeartbeatMs) {
+        const downMs = Date.now() - lastHeartbeatMs;
+        if (downMs > config.heartbeat.downtimeThresholdMinutes * 60 * 1000) {
+          const minutes = Math.round(downMs / 60000);
+          const sinceLocal = toLocalAuditString(new Date(lastHeartbeatMs), config.timeZone);
+          console.warn(`[HEARTBEAT] downtime detectado: ~${minutes} min (desde ${sinceLocal}).`);
+          operationalNotifier.notifyRecovery(minutes, sinceLocal).catch((err) => {
+            console.warn('[OPERATIONAL NOTIFY] error avisando recovery:', maskSensitiveText(err && err.message));
+          });
+        }
+      }
+      heartbeatStore.start();
+    }
     // MOD-05: scheduler del informe semanal de errores.
     if (config.weeklyReport.enabled) weeklyReportService.start();
     // F0.5: catch-up del backlog ocurrido durante el outage, diferido tras ready.
@@ -410,14 +417,36 @@ function startBot() {
   async function runCatchUp() {
     if (!config.catchUp.enabled) return;
     try {
-      const cutoffMs = Date.now() - config.catchUp.windowMinutes * 60 * 1000;
+      // B1/I1: dos modos. Estandar (caida corta) = ventana de windowMinutes hacia atras.
+      // Manual (caida larga) = CATCHUP_SINCE con una fecha-hora LOCAL: recupera desde esa
+      // hora con un limite de mensajes mas alto. Si CATCHUP_SINCE es invalido, cae al modo
+      // estandar para no bloquear el arranque.
+      let cutoffMs;
+      let fetchLimit;
+      let modo;
+      if (config.catchUp.since) {
+        const sinceDate = parseLocalDateTime(config.catchUp.since, config.timeZone);
+        if (sinceDate) {
+          cutoffMs = sinceDate.getTime();
+          fetchLimit = config.catchUp.manualFetchLimit;
+          modo = `MANUAL desde ${config.catchUp.since} (limite ${fetchLimit}/grupo)`;
+          console.warn(`[CATCHUP] ⚠ modo MANUAL activo (CATCHUP_SINCE=${config.catchUp.since}). Recorda BORRAR la variable tras esta recuperacion para volver al modo automatico.`);
+        } else {
+          console.error(`[CATCHUP] CATCHUP_SINCE invalido ("${maskSensitiveText(config.catchUp.since)}"); formato esperado "YYYY-MM-DD HH:mm". Se usa la ventana automatica.`);
+        }
+      }
+      if (cutoffMs === undefined) {
+        cutoffMs = Date.now() - config.catchUp.windowMinutes * 60 * 1000;
+        fetchLimit = config.catchUp.fetchLimit;
+        modo = `ventana ${config.catchUp.windowMinutes}min (auto)`;
+      }
       const chats = await client.getChats();
       let fed = 0;
       for (const chat of chats) {
         if (!chat.isGroup || !config.whatsapp.groups[chat.name]) continue;
         let msgs = [];
         try {
-          msgs = await chat.fetchMessages({ limit: config.catchUp.fetchLimit });
+          msgs = await chat.fetchMessages({ limit: fetchLimit });
         } catch (err) {
           console.warn(`[CATCHUP] no se pudo leer "${maskSensitiveText(chat.name, 80)}": ${maskSensitiveText(err && err.message)}`);
           continue;
@@ -432,7 +461,7 @@ function startBot() {
           });
         }
       }
-      console.log(`[CATCHUP] ventana ${config.catchUp.windowMinutes}min: ${fed} mensajes con media reencaminados (dedup via processedStore).`);
+      console.log(`[CATCHUP] ${modo}: ${fed} mensajes con media reencaminados (dedup via processedStore).`);
     } catch (err) {
       console.error('[CATCHUP] fallo general:', maskSensitiveText(err && err.message));
     }
@@ -456,6 +485,15 @@ function startBot() {
   if (!config.safety.allowRealWhatsappConnection) {
     console.warn('Conexion real a WhatsApp bloqueada por ALLOW_REAL_WHATSAPP_CONNECTION=false.');
     return client;
+  }
+
+  // R1: limpiar locks huerfanos de Chromium ANTES de levantar la sesion. Evita el
+  // "profile appears to be in use" (Code 21) que tiro el bot el 23/06 y que, combinado
+  // con la auto-recuperacion (exit-on-disconnect, F0.4), puede derivar en crash-loop al
+  // reiniciar. Best-effort: si no hay nada que borrar, no hace ni loguea nada.
+  const removedLocks = clearSingletonLocks(config.paths.whatsappAuthData);
+  if (removedLocks > 0) {
+    console.log(`[SESSION] ${removedLocks} lock(s) Singleton huerfano(s) eliminado(s) antes de iniciar.`);
   }
 
   client.initialize().catch((err) => {

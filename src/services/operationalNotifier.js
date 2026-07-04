@@ -42,6 +42,24 @@ function formatDetailValue(value) {
   return maskSensitiveText(value, 160);
 }
 
+// I2: etiquetas legibles en español para los campos de detalle. Las alertas pasan a
+// leerse "Grupo/Cartera/Comprobante/Acción" en vez de las keys crudas del código.
+const DETAIL_LABELS = {
+  group: 'Grupo',
+  tag: 'Cartera',
+  filename: 'Comprobante',
+  accion: 'Acción',
+  action: 'Acción',
+  reason: 'Motivo',
+  error: 'Error',
+  senderId: 'Remitente',
+  paths: 'Rutas',
+  timeoutSeconds: 'Timeout (s)',
+  failures: 'Fallos',
+};
+// Orden en que se muestran los campos clave (lo demás va después, en el orden recibido).
+const DETAIL_ORDER = ['group', 'tag', 'filename', 'accion', 'action', 'reason', 'error'];
+
 function formatAlertMessage(severity, eventType, message, details = {}) {
   const safeSeverity = String(severity || 'WARNING').toUpperCase();
   const safeEventType = String(eventType || 'operational_event')
@@ -55,14 +73,19 @@ function formatAlertMessage(severity, eventType, message, details = {}) {
     `Detalle: ${safeMessage}`,
   ];
 
-  for (const [key, value] of Object.entries(details || {})) {
-    const safeKey = String(key || '')
-      .replace(/[^A-Za-z0-9_.:-]+/g, '_')
-      .slice(0, 40);
+  const entries = Object.entries(details || {});
+  entries.sort((a, b) => {
+    const ia = DETAIL_ORDER.indexOf(a[0]);
+    const ib = DETAIL_ORDER.indexOf(b[0]);
+    return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+  });
+
+  for (const [key, value] of entries) {
     const safeValue = formatDetailValue(value);
-    if (safeKey && safeValue) {
-      lines.push(`${safeKey}: ${safeValue}`);
-    }
+    if (!safeValue) continue;
+    const label = DETAIL_LABELS[key]
+      || String(key || '').replace(/[^A-Za-z0-9_.:-]+/g, '_').slice(0, 40);
+    if (label) lines.push(`${label}: ${safeValue}`);
   }
 
   return lines.join('\n');
@@ -418,6 +441,15 @@ function createOperationalNotifier({
     return notify(type, { stateKey });
   }
 
+  // I2/R6: aviso post-caida. Al revivir, informa a los grupos de estado cuanto estuvo caido
+  // (calculado por index.js con el heartbeat persistido). El bot caido no puede avisar por
+  // WhatsApp; este aviso llega recien cuando vuelve.
+  async function notifyRecovery(minutesDown, sinceLocal) {
+    if (!isEnabled()) return { ok: false, reason: 'disabled' };
+    const msg = `♻️ Bot reiniciado tras una caida. Estuvo sin actividad ~${minutesDown} min (desde ${sinceLocal}). Recuperando comprobantes del periodo.`;
+    return sendPreparedMessage(msg, { channel: 'status' });
+  }
+
   async function checkOperationalTransition(now = nowProvider()) {
     if (!isEnabled() || notifierConfig.notifyOnOffHours === false) {
       return { ok: false, reason: 'disabled' };
@@ -497,6 +529,7 @@ function createOperationalNotifier({
     notifyCritical,
     notifyError,
     notifyReady,
+    notifyRecovery,
     notifyShutdown,
     notifyWarning,
     startOperationalStatusWatcher,

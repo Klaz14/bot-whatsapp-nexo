@@ -1,24 +1,10 @@
 'use strict';
 
-// Fix: mismo patch que src/index.js — este script corre como proceso separado
-// y no hereda el patch global. Sin esto, gaxios envía Accept-Encoding:gzip y
-// Node.js 22 falla con ERR_STREAM_PREMATURE_CLOSE al descomprimir.
-(function patchHttpsAcceptEncoding() {
-  const https = require('https');
-  const orig = https.request;
-  https.request = function () {
-    for (const arg of arguments) {
-      if (arg && typeof arg === 'object' && !Buffer.isBuffer(arg) && arg.headers) {
-        const h = arg.headers;
-        const k = Object.keys(h).find((key) => key.toLowerCase() === 'accept-encoding');
-        if (k) h[k] = 'identity'; else h['Accept-Encoding'] = 'identity';
-        break;
-      }
-    }
-    return orig.apply(this, arguments);
-  };
-  console.log('[HTTPS-PATCH] Accept-Encoding=identity forzado (fix node-fetch/gzip/Node22)');
-}());
+// R4: patch HTTPS compartido. Este script corre como proceso separado y NO hereda el patch
+// global del bot, por eso lo aplica explicitamente antes de hablar con Google (sin esto,
+// gaxios envia Accept-Encoding:gzip y Node 22 falla con ERR_STREAM_PREMATURE_CLOSE al
+// descomprimir). Ver src/utils/httpsIdentityPatch.js.
+require('../src/utils/httpsIdentityPatch').applyHttpsIdentityPatch();
 
 /**
  * scripts/recoverWindow.js

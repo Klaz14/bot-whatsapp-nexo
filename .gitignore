@@ -12,6 +12,8 @@ uploads.log
 errors.log
 *.log
 .DS_Store
+.vscode/
+.claude/
 config.json
 processed-messages.json
 processed-messages*.json

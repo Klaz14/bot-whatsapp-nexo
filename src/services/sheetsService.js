@@ -23,12 +23,26 @@ function createSheetsService(config) {
 
   function getAuth() {
     if (authClient) return authClient;
-    const keyFile = config.sheets.credentialsPath;
-    if (!keyFile) {
-      throw new Error('Falta GOOGLE_SHEETS_CREDENTIALS_PATH (JSON de Service Account) para leer Sheets.');
+    // Preferir el JSON inline (env var GOOGLE_SHEETS_CREDENTIALS_JSON, comodo/seguro en
+    // Railway: se guarda cifrado, sin subir archivos al volumen); si no, caer al archivo
+    // (GOOGLE_SHEETS_CREDENTIALS_PATH).
+    const inlineJson = config.sheets.credentialsJson;
+    if (inlineJson) {
+      let credentials;
+      try {
+        credentials = JSON.parse(inlineJson);
+      } catch (err) {
+        throw new Error('GOOGLE_SHEETS_CREDENTIALS_JSON no es un JSON valido de Service Account.');
+      }
+      authClient = new google.auth.GoogleAuth({ credentials, scopes: [SHEETS_SCOPE] });
+      return authClient;
     }
-    authClient = new google.auth.GoogleAuth({ keyFile, scopes: [SHEETS_SCOPE] });
-    return authClient;
+    const keyFile = config.sheets.credentialsPath;
+    if (keyFile) {
+      authClient = new google.auth.GoogleAuth({ keyFile, scopes: [SHEETS_SCOPE] });
+      return authClient;
+    }
+    throw new Error('Falta GOOGLE_SHEETS_CREDENTIALS_JSON o GOOGLE_SHEETS_CREDENTIALS_PATH (Service Account) para leer Sheets.');
   }
 
   async function readRows(spreadsheetId, sheetName) {

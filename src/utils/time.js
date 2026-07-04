@@ -95,6 +95,31 @@ function formatLocalDayMonthForFilename(date = new Date(), timeZone = DEFAULT_TI
   return `${values.day}${values.month}`;
 }
 
+// Parsea "YYYY-MM-DD HH:mm" (acepta tambien "T" como separador) interpretando la hora en la
+// timeZone dada y devuelve el Date (instante UTC) correcto. null si el formato es invalido.
+// Lo usa el override manual del catch-up (CATCHUP_SINCE): el operador escribe la hora de la
+// caida en hora LOCAL (la que ve) y esto la convierte al instante real. Algoritmo estandar
+// zoned-time -> UTC de una pasada: correcto para TZ sin DST como Argentina (en el borde de
+// un cambio de DST podria errar 1h, no aplica aca).
+function parseLocalDateTime(str, timeZone = DEFAULT_TIME_ZONE) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})$/.exec(String(str || '').trim());
+  if (!m) return null;
+  const y = +m[1], mo = +m[2], d = +m[3], h = +m[4], mi = +m[5];
+  if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59) return null;
+  const safeTimeZone = normalizeTimeZone(timeZone);
+  const asUtc = Date.UTC(y, mo - 1, d, h, mi);
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: safeTimeZone,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  }).formatToParts(new Date(asUtc));
+  const v = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+  const localAsUtc = Date.UTC(+v.year, +v.month - 1, +v.day, +v.hour, +v.minute, +v.second);
+  const offset = localAsUtc - asUtc; // cuanto adelanta la TZ respecto a UTC
+  const result = new Date(asUtc - offset);
+  return Number.isFinite(result.getTime()) ? result : null;
+}
+
 module.exports = {
   DEFAULT_TIME_ZONE,
   buildAuditTime,
@@ -104,6 +129,7 @@ module.exports = {
   formatLocalMonthForDriveFolder,
   formatLocalTimeForFilename,
   normalizeTimeZone,
+  parseLocalDateTime,
   toLocalAuditString,
   toUtcISOString,
 };

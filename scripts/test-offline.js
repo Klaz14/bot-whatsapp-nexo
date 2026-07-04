@@ -72,6 +72,27 @@ const cleanup = [];
     assert.strictEqual(bc.isExempt('TT/CAJA NEXO'), true);
     assert.strictEqual(bc.isExempt('Otro'), false);
   });
+  await testAsync('B3: sin cache de Sheets, cae a blocked-senders.json local + exentos legacy', () => {
+    const cachePath = tmp('bl-nocache'); // NO se crea -> no existe -> dispara fallback
+    const localPath = tmp('blocked-local'); cleanup.push(localPath);
+    fs.writeFileSync(localPath, JSON.stringify({ blockedNumbers: ['543815123456'] }));
+    const cfg = {
+      blacklist: { cachePath },
+      paths: { blockedSenders: localPath },
+      blacklistExemptGroups: ['Grupo Exento'],
+    };
+    const bc = createBlacklistCache({ config: cfg, sheetsService: null });
+    assert.strictEqual(bc.loadFromDisk(), true);                       // uso el fallback
+    assert.strictEqual(bc.isBlocked('5493815123456@c.us'), true);      // canonical con/sin 9
+    assert.strictEqual(bc.isBlocked('5490000000000@c.us'), false);
+    assert.strictEqual(bc.isExempt('Grupo Exento'), true);
+  });
+  await testAsync('B3: sin cache ni fallback local -> lista vacia (no rompe)', () => {
+    const cfg = { blacklist: { cachePath: tmp('bl-none') }, paths: {}, blacklistExemptGroups: [] };
+    const bc = createBlacklistCache({ config: cfg, sheetsService: null });
+    assert.strictEqual(bc.loadFromDisk(), false);
+    assert.strictEqual(bc.isBlocked('5493815123456@c.us'), false);
+  });
 
   console.log('\n== logParser (MOD-05) ==');
   const { parseErrors, clusterErrors } = require('../src/utils/logParser');
@@ -96,6 +117,9 @@ const cleanup = [];
     assert.strictEqual(isRetryableDriveError({ response: { status: 500 } }), true);
     assert.strictEqual(isRetryableDriveError({ code: 'ECONNRESET' }), true);
     assert.strictEqual(isRetryableDriveError({ message: 'socket hang up' }), true);
+    // R5: premature close (bug gzip Node 22) = transitorio
+    assert.strictEqual(isRetryableDriveError({ code: 'ERR_STREAM_PREMATURE_CLOSE' }), true);
+    assert.strictEqual(isRetryableDriveError({ message: 'Premature close' }), true);
     assert.strictEqual(isRetryableDriveError({ code: 403 }), false);
     assert.strictEqual(isRetryableDriveError({ code: 404 }), false);
     assert.strictEqual(isRetryableDriveError({ code: 400 }), false);
@@ -131,6 +155,28 @@ const cleanup = [];
     assert.strictEqual(gc.getTagById('999@g.us'), undefined);
   });
 
+  console.log('\n== operationalNotifier.formatAlertMessage (I2) ==');
+  const { formatAlertMessage } = require('../src/services/operationalNotifier');
+  test('etiquetas ES, campo Acción y orden de campos clave', () => {
+    const msg = formatAlertMessage('ERROR', 'drive_upload_failed', 'Fallo subiendo', {
+      error: 'status 429',
+      filename: '12_0107_1430_XAEA.jpg',
+      group: 'XAEA/NEXO',
+      tag: 'XAEA',
+      accion: 'reencolado a pendientes (se reintenta)',
+    });
+    assert.ok(msg.includes('🚨 BOT TRANSFERENCIAS - ERROR'));
+    assert.ok(msg.includes('Grupo: XAEA/NEXO'));       // etiqueta ES (no "group:")
+    assert.ok(msg.includes('Cartera: XAEA'));
+    assert.ok(msg.includes('Comprobante: 12_0107_1430_XAEA.jpg'));
+    assert.ok(msg.includes('Acción: reencolado a pendientes (se reintenta)'));
+    assert.ok(!msg.includes('group:'));                // ya no muestra keys crudas
+    // orden: Grupo antes que Comprobante antes que Acción antes que Error
+    assert.ok(msg.indexOf('Grupo:') < msg.indexOf('Comprobante:'));
+    assert.ok(msg.indexOf('Comprobante:') < msg.indexOf('Acción:'));
+    assert.ok(msg.indexOf('Acción:') < msg.indexOf('Error:'));
+  });
+
   console.log('\n== operationalNotifier: dedup con TTL ==');
   const { createOperationalNotifier } = require('../src/services/operationalNotifier');
   await testAsync('re-alerta una condicion recurrente despues del TTL', async () => {
@@ -153,6 +199,88 @@ const cleanup = [];
     assert.deepStrictEqual(findSequenceGaps([7, 7, 1, 2]), [3, 4, 5, 6]); // dups (PDF multipagina)
     assert.deepStrictEqual(findSequenceGaps([1, 2, 3]), []);
     assert.deepStrictEqual(findSequenceGaps([]), []);
+  });
+
+  console.log('\n== sessionLocks.clearSingletonLocks (R1) ==');
+  const { clearSingletonLocks } = require('../src/utils/sessionLocks');
+  test('borra Singleton* recursivo, respeta el resto, no rompe si falta', () => {
+    const root = path.join(os.tmpdir(), `kalaza-locks-${process.pid}`);
+    const sess = path.join(root, 'session-bot', 'Default');
+    fs.mkdirSync(sess, { recursive: true });
+    // locks que SI se deben borrar (en la raiz de sesion y en una subcarpeta)
+    fs.writeFileSync(path.join(root, 'session-bot', 'SingletonLock'), 'x');
+    fs.writeFileSync(path.join(root, 'session-bot', 'SingletonCookie'), 'x');
+    fs.writeFileSync(path.join(sess, 'SingletonSocket'), 'x');
+    // archivos que NO se deben tocar
+    fs.writeFileSync(path.join(sess, 'Cookies'), 'x');
+    fs.writeFileSync(path.join(root, 'session-bot', 'Default-Singleton'), 'x'); // no empieza con "Singleton"
+    const removed = clearSingletonLocks(root);
+    assert.strictEqual(removed, 3);
+    assert.ok(!fs.existsSync(path.join(root, 'session-bot', 'SingletonLock')));
+    assert.ok(!fs.existsSync(path.join(sess, 'SingletonSocket')));
+    assert.ok(fs.existsSync(path.join(sess, 'Cookies')));                          // preservado
+    assert.ok(fs.existsSync(path.join(root, 'session-bot', 'Default-Singleton'))); // preservado
+    assert.strictEqual(clearSingletonLocks(root), 0);                    // idempotente
+    assert.strictEqual(clearSingletonLocks(path.join(root, 'nope')), 0); // path inexistente: no rompe
+    assert.strictEqual(clearSingletonLocks(undefined), 0);               // sin path: no rompe
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  console.log('\n== time.parseLocalDateTime (B1 catch-up manual) ==');
+  const { parseLocalDateTime } = require('../src/utils/time');
+  test('interpreta hora LOCAL Argentina (UTC-3) y da el instante UTC correcto', () => {
+    const d = parseLocalDateTime('2026-07-01 14:30', 'America/Argentina/Buenos_Aires');
+    assert.ok(d instanceof Date);
+    assert.strictEqual(d.toISOString(), '2026-07-01T17:30:00.000Z'); // 14:30 -03:00 = 17:30Z
+    // acepta "T" como separador
+    assert.strictEqual(
+      parseLocalDateTime('2026-07-01T14:30', 'America/Argentina/Buenos_Aires').toISOString(),
+      '2026-07-01T17:30:00.000Z'
+    );
+    // invalidos -> null (cae al modo automatico, no rompe el arranque)
+    assert.strictEqual(parseLocalDateTime('no-es-fecha'), null);
+    assert.strictEqual(parseLocalDateTime('2026-13-01 14:30'), null); // mes invalido
+    assert.strictEqual(parseLocalDateTime('2026-07-01 25:30'), null); // hora invalida
+    assert.strictEqual(parseLocalDateTime(''), null);
+    assert.strictEqual(parseLocalDateTime(null), null);
+  });
+
+  console.log('\n== heartbeatStore (I2/R6 aviso post-caida) ==');
+  const { createHeartbeatStore } = require('../src/services/heartbeatStore');
+  test('write persiste ts y readLast lo recupera; sin archivo -> null', () => {
+    const p = tmp('hb'); cleanup.push(p);
+    const hb = createHeartbeatStore({ config: { paths: { heartbeat: p }, heartbeat: {} } });
+    assert.strictEqual(hb.readLast(), null);            // aun no existe
+    hb.write();
+    const ts = hb.readLast();
+    assert.ok(typeof ts === 'number' && ts > 0);        // recupera el ts escrito
+    assert.ok(Math.abs(Date.now() - ts) < 60000);       // es reciente
+  });
+  test('readLast no rompe con path ausente o archivo corrupto', () => {
+    const hb0 = createHeartbeatStore({ config: { paths: {}, heartbeat: {} } });
+    assert.strictEqual(hb0.readLast(), null);
+    const p = tmp('hb-bad'); cleanup.push(p);
+    fs.writeFileSync(p, 'no-es-json{');
+    const hb1 = createHeartbeatStore({ config: { paths: { heartbeat: p }, heartbeat: {} } });
+    assert.strictEqual(hb1.readLast(), null);
+  });
+
+  console.log('\n== httpsIdentityPatch (R4) ==');
+  const { forceIdentityEncoding, applyHttpsIdentityPatch } = require('../src/utils/httpsIdentityPatch');
+  test('forceIdentityEncoding fuerza identity (case-insensitive) y agrega si falta', () => {
+    assert.deepStrictEqual(forceIdentityEncoding({ 'Accept-Encoding': 'gzip' }), { 'Accept-Encoding': 'identity' });
+    assert.deepStrictEqual(forceIdentityEncoding({ 'accept-encoding': 'gzip, deflate' }), { 'accept-encoding': 'identity' });
+    assert.deepStrictEqual(forceIdentityEncoding({ 'X-Other': 'v' }), { 'X-Other': 'v', 'Accept-Encoding': 'identity' });
+    assert.strictEqual(forceIdentityEncoding(null), null); // no rompe con headers ausente
+  });
+  test('applyHttpsIdentityPatch es idempotente', () => {
+    const https = require('https');
+    const before = https.request;
+    assert.strictEqual(applyHttpsIdentityPatch(), true);  // primera vez: aplica
+    const patched = https.request;
+    assert.notStrictEqual(patched, before);               // cambio la referencia
+    assert.strictEqual(applyHttpsIdentityPatch(), false); // segunda vez: no-op
+    assert.strictEqual(https.request, patched);           // sigue siendo el mismo patch
   });
 
   for (const p of cleanup) { try { fs.unlinkSync(p); } catch (_) {} }

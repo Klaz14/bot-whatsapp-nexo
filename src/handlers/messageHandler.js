@@ -201,7 +201,7 @@ function createMessageHandler({ config, driveService, logService, processedStore
             'notifyError',
             'pending_enqueue_failed',
             'No se pudo guardar comprobante en pendientes tras fallo de subida.',
-            { group: chat.name, tag, error: enqueueErr }
+            { group: chat.name, tag, error: enqueueErr, accion: '⚠ NO se pudo guardar - COMPROBANTE EN RIESGO, reenviar manualmente' }
           );
         }
       }
@@ -244,6 +244,30 @@ function createMessageHandler({ config, driveService, logService, processedStore
 
             console.log(`[PDF multi-pagina] ${result.uploaded.length} OK, ${result.failed.length} fallidas (baseId ${result.baseId}, ${result.pageCount} pags)`);
 
+            // B2: si algunas paginas fallaron (fallo PARCIAL), reintentar en vivo SOLO esas,
+            // reusando el mismo baseId para no duplicar las que ya subieron. Cubre fallos
+            // transitorios de Drive. Si el reintento completa el comprobante, sigue el flujo
+            // de exito normal; si aun faltan, alerta con el detalle de las paginas.
+            if (result.failed.length > 0) {
+              const failedPages = result.failed.map((f) => f.pageNumber);
+              console.warn(`[PDF multi-pagina] reintento en vivo de paginas ${failedPages.join(', ')} (baseId ${result.baseId})`);
+              try {
+                const retry = await driveService.uploadPdfPagesWithRetry(buffer, 'image/jpeg', {
+                  groupName: chat.name,
+                  date: messageDate,
+                  media: { ...media, mimetype: 'image/jpeg' },
+                  tag,
+                  onlyPages: failedPages,
+                  baseId: result.baseId,
+                });
+                result.uploaded = result.uploaded.concat(retry.uploaded);
+                result.failed = retry.failed; // las que AUN fallan tras el reintento
+              } catch (retryErr) {
+                console.error(`[PDF multi-pagina] reintento fallo: ${maskSensitiveText(retryErr && retryErr.message)}`);
+                // result.failed queda como estaba -> cae a la alerta parcial de abajo
+              }
+            }
+
             if (result.failed.length === 0) {
               if (messageKey) {
                 try {
@@ -260,6 +284,7 @@ function createMessageHandler({ config, driveService, logService, processedStore
                       tag,
                       filename: `baseId_${result.baseId}`,
                       error: storeErr,
+                      accion: 'comprobante SUBIDO ok; podria reprocesarse',
                     }
                   );
                 }
@@ -267,16 +292,20 @@ function createMessageHandler({ config, driveService, logService, processedStore
               if (statsStore) statsStore.recordUpload({ tag, groupName: chat.name, messageDate });
               await reactSafe('👍'); // acuse: PDF multi-pagina subido OK
             } else {
+              // Tras el reintento aun faltan paginas: alertar con el detalle para
+              // intervencion manual (no se pierde info: se sabe grupo, ID y que paginas).
+              const stillFailed = result.failed.map((f) => f.pageNumber).join(', ');
               notifySafely(
                 operationalNotifier,
                 'notifyError',
                 'drive_multipage_partial',
-                `Subida parcial de PDF multi-pagina: ${result.uploaded.length} OK, ${result.failed.length} fallaron.`,
+                `Subida parcial de PDF multi-pagina: subieron ${result.uploaded.length}/${result.pageCount} paginas; tras reintento faltan las paginas ${stillFailed}.`,
                 {
                   group: chat.name,
                   tag,
                   filename: `baseId_${result.baseId}`,
                   error: null,
+                  accion: 'faltan paginas - requiere revision/reenvio manual',
                 }
               );
             }
@@ -295,17 +324,19 @@ function createMessageHandler({ config, driveService, logService, processedStore
               operationalNotifier,
               'notifyError',
               'drive_upload_failed',
-              'Fallo subiendo comprobante multi-pagina a Entrantes.',
+              'Fallo subiendo comprobante multi-pagina a Entrantes; se encola a pendientes para reintento.',
               {
                 group: chat.name,
                 tag,
                 filename: '-',
                 error: err,
+                accion: 'reencolado a pendientes (se reintenta)',
               }
             );
-            // F0.1: fallo total de la subida multi-pagina -> encolar el PDF crudo a
-            // pendientes (el pendingProcessor re-rasteriza y reintenta). El fallo PARCIAL
-            // (algunas paginas OK) NO se reencola para no duplicar; tracking por pagina = P2.
+            // F0.1: fallo TOTAL de la subida multi-pagina (excepcion antes de subir nada) ->
+            // encolar el PDF crudo a pendientes (el pendingProcessor re-rasteriza y reintenta).
+            // El fallo PARCIAL (algunas paginas OK, otras no) se resuelve con reintento en vivo
+            // de las faltantes mas arriba (B2); no llega aca.
             await enqueueToPending({ buffer, mimeType: 'application/pdf', media, reason: 'multipage_live' });
           }
           return;
@@ -343,6 +374,7 @@ function createMessageHandler({ config, driveService, logService, processedStore
               tag,
               filename: media.filename || '(sin nombre)',
               error: err,
+              accion: 'reencolado a pendientes (se reintenta)',
             }
           );
           // F0.2: no descartar el PDF. Encolar el PDF ORIGINAL crudo a pendientes;
@@ -407,6 +439,7 @@ function createMessageHandler({ config, driveService, logService, processedStore
               group: chat.name,
               tag,
               error: err,
+              accion: '⚠ NO se pudo guardar - COMPROBANTE EN RIESGO, reenviar manualmente',
             }
           );
         }
@@ -451,6 +484,7 @@ function createMessageHandler({ config, driveService, logService, processedStore
                 tag,
                 filename,
                 error: storeErr,
+                accion: 'comprobante SUBIDO ok; podria reprocesarse',
               }
             );
           }
@@ -476,6 +510,7 @@ function createMessageHandler({ config, driveService, logService, processedStore
             tag,
             filename,
             error: err,
+            accion: 'reencolado a pendientes (se reintenta)',
           }
         );
         // F0.1 (cierra P5): la subida en vivo agoto los reintentos. El mensaje de

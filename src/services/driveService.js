@@ -272,17 +272,21 @@ function createDriveService(config) {
   // Sube un PDF rasterizando cada página a JPEG, asignando el MISMO ID
   // secuencial a todas las páginas y diferenciándolas con sufijo _<pageNumber>.
   // Best-effort por página: una página que agota reintentos no aborta el resto.
+  // options.onlyPages (array de nros de pagina) + options.baseId permiten reintentar en vivo
+  // SOLO las paginas que fallaron, reusando el mismo ID (B2), sin duplicar las ya subidas.
   async function uploadPdfPagesWithRetry(pdfBuffer, mime, options = {}) {
     const batchSize = (config.pdf && config.pdf.batchSize) || 30;
+    const onlyPages = options.onlyPages ? new Set(options.onlyPages) : null;
 
     if (config.dryRun || !config.safety.allowRealDriveUploads) {
       const pageCount = await getPdfPageCount(pdfBuffer);
       const folderPath = buildDriveFolderPath(options.date || new Date(), config.timeZone);
       const uploaded = [];
       for (let pageNumber = 1; pageNumber <= pageCount; pageNumber++) {
+        if (onlyPages && !onlyPages.has(pageNumber)) continue;
         uploaded.push({
           filename: buildSequentialUploadFilename({
-            id: 1,
+            id: options.baseId || 1,
             date: options.date,
             tag: options.tag,
             media: { ...options.media, mimetype: mime },
@@ -298,7 +302,7 @@ function createDriveService(config) {
       return {
         uploaded,
         failed: [],
-        baseId: 1,
+        baseId: options.baseId || 1,
         pageCount,
         folderPath: folderPath.logicalPath,
       };
@@ -310,13 +314,21 @@ function createDriveService(config) {
     return withFolderLock(uploadFolder.id, async () => {
       const existingNames = await listFileNamesInFolder(uploadFolder.id);
       const ddmm = formatLocalDayMonthForFilename(options.date, config.timeZone);
-      const baseId = getNextSequentialUploadId(existingNames, ddmm);
+      // B2: en un reintento se reusa el baseId original para no duplicar las paginas ya subidas.
+      const baseId = options.baseId || getNextSequentialUploadId(existingNames, ddmm);
 
       const uploaded = [];
       const failed = [];
 
       for (let from = 1; from <= pageCount; from += batchSize) {
         const to = Math.min(from + batchSize - 1, pageCount);
+
+        // B2: si solo reintentamos algunas paginas, saltear lotes que no contienen ninguna.
+        if (onlyPages) {
+          let anyInBatch = false;
+          for (let p = from; p <= to; p++) { if (onlyPages.has(p)) { anyInBatch = true; break; } }
+          if (!anyInBatch) continue;
+        }
 
         let pages;
         try {
@@ -326,12 +338,14 @@ function createDriveService(config) {
             batchErr && batchErr.message ? batchErr.message : 'batch conversion failed'
           );
           for (let p = from; p <= to; p++) {
+            if (onlyPages && !onlyPages.has(p)) continue;
             failed.push({ pageNumber: p, error: reason });
           }
           continue;
         }
 
         for (const page of pages) {
+          if (onlyPages && !onlyPages.has(page.pageNumber)) continue; // B2: subir solo las pedidas
           const filename = buildSequentialUploadFilename({
             id: baseId,
             date: options.date,
