@@ -27,6 +27,11 @@ y hacemos **un solo corte** en el Railway nuevo cuando llegue el chip.
 
 Objetivo: dejar el Railway destino listo para que, cuando llegue el chip, el corte sea mínimo y fuera de horario.
 
+**⚠️ TOPOLOGÍA (aclarado 2026-07-04) — hay DOS Railways:**
+- **Railway de Facundo = PRODUCTIVO actual.** Corre el bot hoy, conectado al repo `Klaz14/bot-whatsapp-nexo`, auto-deploya de `master`. Se opera por la **web** (la CLI NO apunta acá).
+- **Railway de Fede = DESTINO de migración.** La **Railway CLI** (logueada como `federicowf@gmail.com`) ya está **linkeada a este** (en otra carpeta). Cuando migremos, acá SÍ se pueden setear variables con la CLI (`railway variables --set`). Es el "staging" para la prueba de automatización.
+- **Fase 1 (deploy del código 2026-07-04):** hecho al productivo de Facundo vía `git push master`. Las env vars de activación se setean **a mano por web** en ese Railway.
+
 - [ ] **M1** — Crear/preparar el proyecto en el Railway nuevo (con plan que soporte Volume `/data` persistente)
 - [ ] **M2** — Conectar el repo de GitHub al Railway nuevo
 - [ ] **M3** — Copiar las 47 env vars del Railway de Facundo → al nuevo (tenemos acceso de lectura al de Facundo)
@@ -42,11 +47,15 @@ Objetivo: dejar el Railway destino listo para que, cuando llegue el chip, el cor
 
 Todo el código existe y está cableado. Estas variables lo prenden. Detalle en `AUDITORIA_2026-06-29.md`.
 
-- [ ] **C1** — `WHATSAPP_CONTROL_GROUP_NAME` → prende **MOD-03 (`/broadcast`) + MOD-04 (los 10 comandos)** de un saque. ⭐ Mayor impacto/esfuerzo.
+- [x] **C1** ✅ **HECHO (2026-07-04)** — `WHATSAPP_CONTROL_GROUP_NAME=BOT TEST` seteada en el Railway de Facundo. Comandos + broadcast activos y verificados.
   - ✅ **DECIDIDO (2026-07-05):** el grupo de control será **"BOT TEST"** (nombre exacto) — el mismo grupo de alertas/errores actual (donde el bot ya manda los errores). Se nuclea todo ahí: comandos + alertas + errores + aviso post-caída.
   - ✅ **Prerrequisito YA cumplido:** el bot **ya es miembro** de ese grupo → setear la var es SEGURO (no dispara el bug del operationalNotifier que bloquea el `ready` con grupos nuevos). Igual conviene un smoke test tras setearla.
-- [ ] **C2** — `GOOGLE_SHEETS_ID` + `GOOGLE_SHEETS_CREDENTIALS_PATH` → prende **MOD-01** (grupos/TAGs desde Sheets, sin redeploy). Requiere Service Account + planilla compartida como Viewer.
-  - ✅ **DECIDIDO (2026-07-05):** el Service Account se crea bajo la cuenta de **Google Cloud de Fede** (el dueño; proyecto `ScoringInfoExpert` o uno nuevo dedicado). Correcto por gobernanza — los recursos van bajo el dueño, no bajo el empleado. (@nexotuc.com es Hostinger, no sirve para Google Cloud.)
+- [~] **C2** — `GOOGLE_SHEETS_ID` + credencial SA → prende **MOD-01** (grupos/TAGs desde Sheets). **⏸️ EN PAUSA (2ª tanda) — 2026-07-04.**
+  - ✅ Service Account creado (bajo Google Cloud de **Fede**, proyecto `bot-whatsapp-nexo`), planilla compartida (Lector), y `GOOGLE_SHEETS_CREDENTIALS_JSON` ya seteada en Railway (inofensiva sin el ID).
+  - ⛔ **BLOQUEANTE — conflicto de TAGs con el OCR:** activar Sheets cambia el formato del tag en el nombre del archivo (config.json `LUCASTT` → Sheets normaliza `LUCAS_TT`). El OCR (sistema separado) espera el formato viejo → se rompería. Por eso NO se creó `GOOGLE_SHEETS_ID` (Sheets queda apagado, bot sigue con config.json, OCR feliz).
+  - **Para la 2ª tanda:** (1) confirmar cómo matchea el OCR el tag (nombre de archivo / tabla / contenido) y qué formato espera (pegado `LUCASTT` vs guión `LUCAS_TT`); (2) alinear formatos — probablemente ajustar `SHEETS_TAG_NORMALIZE` o la col E para que el bot genere el MISMO tag que hoy, en vez de cambiar 50 tags del OCR. Ver [[project-tag-ocr-pipeline]].
+  - **⭐ ESTRATEGIA RECOMENDADA (2026-07-04):** que Sheets genere el MISMO tag que `config.json` hoy → migración **transparente para el OCR, cero huérfanos, en cualquier momento** (no depende del timing ni de la cantidad de comprobantes en cola). Superior a "migrar al final de la jornada" (que solo minimiza huérfanos, no los elimina). Nota: el timing por sí solo NO alcanza — si el OCR espera el formato viejo, TODOS los comprobantes nuevos (no solo los de la cola) quedan huérfanos hasta actualizar el OCR.
+  - ✅ Service Account bajo la cuenta de **Fede** (el dueño) — correcto por gobernanza. (@nexotuc.com es Hostinger, no sirve para Google Cloud.)
 - [ ] **C3** — `GOOGLE_SHEETS_BOT_CONFIG_ID` (+ mismo SA) → prende **MOD-02** (blacklist/exentos desde Sheets).
 - [ ] **C4** — `ANTHROPIC_API_KEY` → prende el análisis IA del **informe semanal (MOD-05)**. El scheduler ya corre.
 - [ ] **C5** — Verificar en Railway: `PROCESSED_STORE_PATH=/data/...` (o se pierde la idempotencia tras redeploy)
@@ -78,7 +87,7 @@ Robustez pendiente (SPEC_ROBUSTEZ R1-R6, ninguna implementada) + deudas abiertas
 
 ## 🟡 MODIFICACIONES EN STAND-BY (features a activar / mejoras)
 
-- [ ] **F1** — Activar MOD-03 + MOD-04 (comandos operativos: `/status`, `/resumen`, `/forzar`, `/errores`, `/broadcast`...). Depende de **C1**.
+- [x] **F1** ✅ **ACTIVADO en producción (2026-07-04)** — MOD-03 + MOD-04. `WHATSAPP_CONTROL_GROUP_NAME=BOT TEST` seteada en el Railway de Facundo. Verificado: `/comandos /status /pendientes /grupos /auditoria` responden OK. R1 confirmado (arranque limpio; el Code 21 en `/errores` es histórico del 29/06).
 - [ ] **F2** — Activar MOD-01/MOD-02 (config desde Sheets, sin redeploy para agregar grupos). Depende de **C2/C3** + Service Account.
 - [ ] **F3** — Activar análisis IA del informe semanal. Depende de **C4**.
 

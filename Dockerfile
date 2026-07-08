@@ -1,8 +1,11 @@
 FROM node:22-bookworm-slim
 
 ENV NODE_ENV=production
-ENV PUPPETEER_SKIP_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+# Puppeteer usa su Chrome BUNDLED (version atada a puppeteer-core en package-lock, siempre
+# compatible), NO el 'chromium' de apt. Motivo: apt sin pin trae una version nueva en cada
+# rebuild y rompe el arranque headless (incidente 08/07/2026: Chromium 150 de apt vs
+# Puppeteer 24.38 -> "Failed to launch the browser process: Code: null").
+# 'chromium' de apt se mantiene abajo SOLO por sus librerias de sistema (deps del navegador).
 
 WORKDIR /app
 
@@ -17,6 +20,10 @@ RUN apt-get update \
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
+
+# Descargar el Chrome que espera Puppeteer (version atada a puppeteer-core en package-lock,
+# reproducible). Es el navegador que usa el bot (reemplaza al chromium de apt, incompatible).
+RUN npx puppeteer browsers install chrome
 
 COPY . .
 
