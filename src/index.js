@@ -64,6 +64,7 @@ function startBot() {
   let modulosIniciados = false; // F0.5: guard anti doble-init ante 'ready' repetido
   let watchdogFailures = 0;     // F0.4: fallos consecutivos del watchdog de estado
   let watchdogTimer;
+  let pairingCodeRequested = false; // vinculacion por codigo (alternativa al QR)
 
   function clearReadyDiagnosticTimer() {
     if (!readyDiagnosticTimer) return;
@@ -92,7 +93,24 @@ function startBot() {
     if (readyDiagnosticTimer.unref) readyDiagnosticTimer.unref();
   }
 
-  client.on('qr', (qr) => {
+  client.on('qr', async (qr) => {
+    // Alternativa al QR: codigo de vinculacion de 8 caracteres (util cuando el QR en los
+    // logs de la plataforma no se puede escanear). Se activa seteando WHATSAPP_PAIRING_NUMBER
+    // con el numero del bot en formato internacional sin + ni espacios (ej: 5493810000000).
+    if (config.whatsapp.pairingNumber && !pairingCodeRequested) {
+      pairingCodeRequested = true;
+      try {
+        const code = await client.requestPairingCode(config.whatsapp.pairingNumber);
+        console.log('\n==================== VINCULACION POR CODIGO ====================');
+        console.log(`[PAIRING] Codigo: ${code}`);
+        console.log('[PAIRING] En el telefono: WhatsApp -> Dispositivos vinculados ->');
+        console.log('[PAIRING] "Vincular un dispositivo" -> "Vincular con numero de telefono" -> ingresar el codigo.');
+        console.log('================================================================\n');
+        return;
+      } catch (err) {
+        console.error('[PAIRING] fallo requestPairingCode, se usa QR:', maskSensitiveText(err && err.message));
+      }
+    }
     console.log('WhatsApp QR recibido.');
     console.log('\nEscanea este QR con WhatsApp (Configuracion -> Dispositivos vinculados -> Vincular un dispositivo):');
     qrcode.generate(qr, { small: true });

@@ -374,6 +374,9 @@ function loadConfig() {
     },
     whatsapp: {
       clientId: process.env.WHATSAPP_CLIENT_ID || undefined,
+      // Vinculacion por codigo (alternativa al QR): numero del bot en formato internacional.
+      // Se limpia a solo digitos. Si esta seteada, el bot pide un codigo de 8 chars en vez de QR.
+      pairingNumber: (process.env.WHATSAPP_PAIRING_NUMBER || '').replace(/\D/g, '') || undefined,
       // MOD-03/04: grupo desde donde se operan los comandos y el broadcast.
       controlGroupName: process.env.WHATSAPP_CONTROL_GROUP_NAME || undefined,
       groups: envGroups || fileConfig.groups || {},
