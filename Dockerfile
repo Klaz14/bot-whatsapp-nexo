@@ -21,9 +21,12 @@ RUN apt-get update \
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-# Descargar el Chrome que espera Puppeteer (version atada a puppeteer-core en package-lock,
-# reproducible). Es el navegador que usa el bot (reemplaza al chromium de apt, incompatible).
-RUN npx puppeteer browsers install chrome
+# Chrome 131 FIJO. Las versiones recientes (chromium 150 de apt, y el bundled ~142 de
+# Puppeteer) NO renderizan en este contenedor -> "Failed to launch the browser process:
+# Code: null" (incidente 08/07/2026). La 131.0.6778.264 SI renderiza (verificado en el
+# contenedor con --dump-dom). Version pinneada = reproducible en cada rebuild.
+RUN npx puppeteer browsers install chrome@131.0.6778.264
+ENV PUPPETEER_EXECUTABLE_PATH=/root/.cache/puppeteer/chrome/linux-131.0.6778.264/chrome-linux64/chrome
 
 COPY . .
 
