@@ -65,6 +65,7 @@ function startBot() {
   let watchdogFailures = 0;     // F0.4: fallos consecutivos del watchdog de estado
   let watchdogTimer;
   let pairingCodeRequested = false; // vinculacion por codigo (alternativa al QR)
+  let lastQrAscii = null;           // ultimo QR (ASCII) para servirlo por /qr en el navegador
 
   function clearReadyDiagnosticTimer() {
     if (!readyDiagnosticTimer) return;
@@ -112,12 +113,18 @@ function startBot() {
       }
     }
     console.log('WhatsApp QR recibido.');
-    console.log('\nEscanea este QR con WhatsApp (Configuracion -> Dispositivos vinculados -> Vincular un dispositivo):');
-    qrcode.generate(qr, { small: true });
+    qrcode.generate(qr, { small: true }, (ascii) => {
+      lastQrAscii = ascii;
+      console.log(ascii);
+      if (config.qrAccessToken) {
+        console.log(`[QR-WEB] Abri el QR en el navegador: https://<dominio-del-servicio>/qr?token=${config.qrAccessToken}`);
+      }
+    });
   });
 
   client.on('authenticated', () => {
     startReadyDiagnosticTimer();
+    lastQrAscii = null; // ya autenticado: dejar de exponer el QR por /qr
     console.log('Autenticado. Sesion guardada en', config.paths.whatsappAuthData);
   });
 
@@ -371,6 +378,25 @@ function startBot() {
   function startHealthServer() {
     const port = config.autoRecovery.healthPort;
     const server = http.createServer(async (req, res) => {
+      // Endpoint /qr protegido por token: sirve el ultimo QR en el navegador (mas legible que
+      // los logs de la plataforma). Requiere QR_ACCESS_TOKEN y ?token=... El QR se limpia al
+      // autenticarse, asi que el endpoint deja de exponerlo una vez vinculado.
+      if (req.url && req.url.split('?')[0] === '/qr') {
+        let token = '';
+        try { token = new URL(req.url, 'http://x').searchParams.get('token') || ''; } catch (_) {}
+        if (!config.qrAccessToken || token !== config.qrAccessToken) {
+          res.writeHead(403, { 'Content-Type': 'text/plain' });
+          res.end('forbidden');
+          return;
+        }
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        if (!lastQrAscii) {
+          res.end('<!doctype html><meta http-equiv="refresh" content="10"><body style="font-family:monospace;background:#111;color:#eee;padding:16px"><h3>No hay QR pendiente. El bot esta iniciando o ya vinculado. Refresca en unos segundos.</h3></body>');
+        } else {
+          res.end(`<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="15"><title>QR del bot</title><body style="margin:0;background:#fff;display:flex;justify-content:center;padding:12px"><pre style="font-family:monospace;font-size:11px;line-height:1;letter-spacing:0;color:#000;background:#fff;margin:0">${lastQrAscii}</pre></body>`);
+        }
+        return;
+      }
       let statusCode = 503;
       let body = 'unavailable';
       try {

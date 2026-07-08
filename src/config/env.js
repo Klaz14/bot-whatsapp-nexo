@@ -221,6 +221,8 @@ function loadConfig() {
     env: process.env.BOT_ENV || process.env.NODE_ENV || 'local',
     timeZone: normalizeTimeZone(process.env.BOT_TIME_ZONE || DEFAULT_TIME_ZONE),
     dryRun: getBoolean('BOT_DRY_RUN', false),
+    // Token para el endpoint /qr (ver el QR de vinculacion en el navegador). Sin esto, /qr da 403.
+    qrAccessToken: process.env.QR_ACCESS_TOKEN || undefined,
     processingEnabled: getBoolean('BOT_PROCESSING_ENABLED', true),
     // Acuse: reacciona al mensaje del comprobante (👍 subido / 🕒 encolado off-hours).
     reactOnProcessed: getBoolean('REACT_ON_PROCESSED', true),
